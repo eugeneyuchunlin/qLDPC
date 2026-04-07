@@ -625,7 +625,7 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
         """
         if not window_size >= stride > 0:  # pragma: no cover
             raise ValueError(
-                f"{self.__name__} must have window_size >= stride > 0"
+                f"{type(self).__name__} must have window_size >= stride > 0"
                 f" (provided window_size, stride: {window_size}, {stride})"
             )
 
@@ -665,13 +665,13 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
                     raise ValueError(
                         f"detector {detector} has an invalid (non-integer) time index: {time}"
                     )
-                time_to_dets[self.detector_to_time(detector)].append(detector)
+                time_to_dets[time].append(detector)
 
             # add one window at a time (except the last window)
             start_time = min(time_to_dets)
-            num_time_points = max(time_to_dets) - start_time + 1
+            end_time = max(time_to_dets) + 1
             max_size_of_last_window = self.window_size + self.stride - 1
-            while start_time < num_time_points - max_size_of_last_window:
+            while start_time < end_time - max_size_of_last_window:
                 window_time_to_dets = [
                     time_to_dets[start_time + dt] for dt in range(self.window_size)
                 ]
@@ -683,7 +683,7 @@ class SlidingWindowDecoder(SequentialWindowDecoder):
                 start_time += self.stride
 
             # add last window
-            window_time_to_dets = [time_to_dets[tt] for tt in range(start_time, num_time_points)]
+            window_time_to_dets = [time_to_dets[tt] for tt in range(start_time, end_time)]
             last_dets = [det for dets in window_time_to_dets for det in dets]
             self.windows.append((last_dets, last_dets))
 
