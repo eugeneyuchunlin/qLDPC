@@ -288,12 +288,6 @@ def test_qudit_codes() -> None:
     # the logical ops of the redundant code are valid ops of the original code
     code.set_logical_ops(redundant_code.get_logical_ops())  # also validates the logical ops
 
-    # setting only X or Z-type logicals is not yet implemented for non-CSS codes
-    with pytest.raises(NotImplementedError, match="not yet implemented"):
-        code.set_logical_ops_x([])
-    with pytest.raises(NotImplementedError, match="not yet implemented"):
-        code.set_logical_ops_z([])
-
     # stacking two codes
     two_codes = codes.QuditCode.stack([code] * 2)
     assert len(two_codes) == len(code) * 2
@@ -448,8 +442,9 @@ def get_symplectic_form(half_dimension: int, field: type[galois.FieldArray]) -> 
     return math.block_matrix([[0, identity], [-identity, 0]]).view(field)
 
 
-def test_qudit_ops() -> None:
+def test_qudit_ops(pytestconfig: pytest.Config) -> None:
     """Logical and gauge operator construction for Galois qudit codes."""
+    np.random.seed(pytestconfig.getoption("randomly_seed"))
     code: codes.QuditCode
 
     code = codes.FiveQubitCode()
@@ -467,15 +462,28 @@ def test_qudit_ops() -> None:
         stabilizer_ops = code.get_stabilizer_ops()
         logical_ops = code.get_logical_ops()
         gauge_ops = code.get_gauge_ops()
-        assert not np.any(math.symplectic_conjugate(stabilizer_ops) @ stabilizer_ops.T)
+        assert not np.any(stabilizer_ops @ math.symplectic_conjugate(stabilizer_ops).T)
         assert np.array_equal(
-            math.symplectic_conjugate(gauge_ops) @ gauge_ops.T,
+            gauge_ops @ math.symplectic_conjugate(gauge_ops).T,
             get_symplectic_form(code.gauge_dimension, code.field),
         )
         assert np.array_equal(
-            math.symplectic_conjugate(logical_ops) @ logical_ops.T,
+            logical_ops @ math.symplectic_conjugate(logical_ops).T,
             get_symplectic_form(code.dimension, code.field),
         )
+
+        logical_ops_x = logical_ops[: code.dimension]
+        logical_ops_z = logical_ops[code.dimension :]
+
+        # set logical X operators, determine suitable logical Z operators automatically
+        order = np.random.permutation(code.dimension)  # random permutation of logicals
+        code.set_logical_ops_x(logical_ops_x[order])
+        assert np.array_equal(code.get_logical_ops(Pauli.Z), logical_ops_z[order])
+
+        # set logical Z operators, determine suitable logical X operators automatically
+        order = np.random.permutation(code.dimension)  # random permutation of logicals
+        code.set_logical_ops_z(logical_ops_z[order])
+        assert np.array_equal(code.get_logical_ops(Pauli.X), logical_ops_x[order])
 
     # test the guarantee of stabilizer canonicalization
     code = codes.FiveQubitCode()
@@ -581,8 +589,9 @@ def test_css_code(pytestconfig: pytest.Config) -> None:
 def test_css_ops(pytestconfig: pytest.Config) -> None:
     """Logical and stabilizer operator construction for CSS codes."""
     seed = pytestconfig.getoption("randomly_seed")
+    code: codes.CSSCode
 
-    code: codes.CSSCode = codes.SHPCode(codes.ClassicalCode.random(4, 2, field=3, seed=seed))
+    code = codes.SHPCode(codes.ClassicalCode.random(4, 2, field=3, seed=seed))
 
     # set X-type logicals and determine Z-type logicals automatically
     other_code = codes.CSSCode(code.matrix_x, code.matrix_z)
@@ -618,10 +627,6 @@ def test_css_ops(pytestconfig: pytest.Config) -> None:
 def test_distance_css() -> None:
     """Distance calculations for CSS codes."""
     code: codes.CSSCode
-
-    # code = codes.SteaneCode()
-    # code.forget_distance()
-    # assert code.get_distance() == 3
 
     # qubit code distance
     code = codes.QuditCode(codes.SHPCode(codes.RepetitionCode(2)).matrix).to_css()
