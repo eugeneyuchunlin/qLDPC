@@ -26,7 +26,7 @@ import stim
 import sympy.combinatorics as comb
 
 from qldpc import circuits, codes
-from qldpc.math import op_to_string
+from qldpc.math import op_to_string, symplectic_conjugate
 from qldpc.objects import Pauli
 
 
@@ -49,6 +49,20 @@ def test_state_prep(pytestconfig: pytest.Config) -> None:
 
     for code, only_zero in itertools.product(codes_to_test, [True, False]):
         encoder = circuits.get_encoding_circuit(code, only_zero=only_zero)
+
+        # errors flip parity checks as they should
+        stabilizers = code.get_stabilizer_ops()
+        error_vec = code.field.Random(len(code) * 2)
+        error_ops = stim.Circuit()
+        for qubit in range(len(code)):
+            xx_zz = (error_vec[qubit], error_vec[qubit + len(code)])
+            error_ops.append(str(Pauli(xx_zz)), qubit)
+        measurements = circuits.get_pauli_product_measurements(stabilizers)
+        outcomes = (encoder + error_ops + measurements).reference_sample()
+        syndrome = stabilizers @ symplectic_conjugate(error_vec)
+        assert np.array_equal(outcomes.astype(int), syndrome)
+
+        # performing remaniing tests below with a tableau simulator
         simulator = stim.TableauSimulator()
         simulator.do(encoder)
 
@@ -62,7 +76,7 @@ def test_state_prep(pytestconfig: pytest.Config) -> None:
             string = op_to_string(op)
             assert simulator.peek_observable_expectation(string) == 1
 
-        # logical Z operators have expectation value 0
+        # logical X operators have expectation value 0
         for op in code.get_logical_ops(Pauli.X, symplectic=True):
             string = op_to_string(op)
             assert simulator.peek_observable_expectation(string) == 0

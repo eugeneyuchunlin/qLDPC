@@ -22,10 +22,11 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import ParamSpec, TypeVar, Union
 
 import numpy as np
+import numpy.typing as npt
 import stim
 
 from qldpc import codes, math
-from qldpc.objects import Pauli
+from qldpc.objects import Node, Pauli
 
 CircuitOrTableau = TypeVar("CircuitOrTableau", bound=Union[stim.Circuit, stim.Tableau])
 Params = ParamSpec("Params")
@@ -196,6 +197,29 @@ def _get_logical_tableau_from_code_data(
         assert not np.any(z2z[sector_g, sector_l])
 
     return logical_tableau
+
+
+def get_pauli_product_measurements(op_vecs: npt.NDArray[np.int_]) -> stim.Circuit:
+    """Construct a circuit to measure the Pauli strings represented by the rows of a matrix.
+
+    Each row is interpreted as a symplectic vector indicating the [X|Z] support of a Pauli string.
+    If "code" is a QuditCode, for example, then passing "op_vecs=code.get_stabilizer_ops()" will
+    measure the stabilizers of "code".
+    """
+    op_graph = codes.QuditCode.matrix_to_graph(op_vecs)
+    if op_graph.field.order != 2:  # pragma: no cover
+        raise ValueError("Circuit methods are only supported for qubit codes")
+
+    circuit = stim.Circuit()
+    for node_index in range(len(op_vecs)):
+        op_node = Node(node_index, is_data=False)
+        targets = [
+            stim.target_pauli(data_node.index, str(edge_data[Pauli]))
+            for _, data_node, edge_data in op_graph.edges(op_node, data=True)
+        ]
+        circuit.append("MPP", stim.target_combined_paulis(targets))
+
+    return circuit
 
 
 def with_remapped_qubits(
