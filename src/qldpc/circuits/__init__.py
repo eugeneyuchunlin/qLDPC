@@ -1,4 +1,9 @@
 from .alpha_syndrome import AlphaSyndrome
+from .benchmarking import (
+    get_logical_error_and_discard_rates,
+    get_state_prep_diagnostic_circuit,
+    get_state_prep_diagnostic_tasks,
+)
 from .bookkeeping import (
     DetectorRecord,
     MeasurementRecord,
@@ -12,6 +17,7 @@ from .common import (
     get_encoding_tableau,
     get_logical_tableau,
     get_pauli_product_measurements,
+    restrict_to_qubits,
     with_remapped_qubits,
 )
 from .memory import (
@@ -41,6 +47,10 @@ from .transversal import (
 )
 
 __all__ = [
+    "AlphaSyndrome",
+    "get_logical_error_and_discard_rates",
+    "get_state_prep_diagnostic_circuit",
+    "get_state_prep_diagnostic_tasks",
     "DetectorRecord",
     "MeasurementRecord",
     "MemoryExperimentParts",
@@ -51,6 +61,7 @@ __all__ = [
     "get_encoding_tableau",
     "get_logical_tableau",
     "get_pauli_product_measurements",
+    "restrict_to_qubits",
     "with_remapped_qubits",
     "get_logical_bell_prep",
     "get_memory_experiment",
@@ -64,7 +75,6 @@ __all__ = [
     "as_noiseless_circuit",
     "EdgeColoring",
     "EdgeColoringXZ",
-    "AlphaSyndrome",
     "SyndromeMeasurementStrategy",
     "get_transversal_automorphism_group",
     "get_transversal_circuit",
