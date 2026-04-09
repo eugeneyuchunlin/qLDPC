@@ -3021,7 +3021,9 @@ class CSSCode(QuditCode):
         decoder_x_kwargs: dict[str, Any] | None = None,
         decoder_z_kwargs: dict[str, Any] | None = None,
         **decoder_kwargs: Any,
-    ) -> Callable[[float | Sequence[float]], tuple[float, float]]:
+    ) -> Callable[
+        [float | Sequence[float]], tuple[npt.NDArray[np.floating], npt.NDArray[np.floating]]
+    ]:
         """Construct a function from physical --> logical error rate in a code capacity model.
 
         In addition to the logical error rate, the constructed function returns an uncertainty
