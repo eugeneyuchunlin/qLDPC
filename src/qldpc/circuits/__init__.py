@@ -1,6 +1,7 @@
 from .alpha_syndrome import AlphaSyndrome
 from .benchmarking import (
     get_logical_error_and_discard_rates,
+    get_nontrivial_logical_stabilizers,
     get_state_prep_diagnostic_circuit,
     get_state_prep_diagnostic_tasks,
 )
@@ -49,6 +50,7 @@ from .transversal import (
 __all__ = [
     "AlphaSyndrome",
     "get_logical_error_and_discard_rates",
+    "get_nontrivial_logical_stabilizers",
     "get_state_prep_diagnostic_circuit",
     "get_state_prep_diagnostic_tasks",
     "DetectorRecord",
