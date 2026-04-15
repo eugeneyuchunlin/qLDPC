@@ -1,6 +1,6 @@
 from .alpha_syndrome import AlphaSyndrome
 from .benchmarking import (
-    get_logical_error_and_discard_rates,
+    get_logical_error_and_discard_rate,
     get_nontrivial_logical_stabilizers,
     get_state_prep_diagnostic_circuit,
     get_state_prep_diagnostic_tasks,
@@ -8,7 +8,6 @@ from .benchmarking import (
 from .bookkeeping import (
     DetectorRecord,
     MeasurementRecord,
-    MemoryExperimentParts,
     QubitIDs,
     Record,
 )
@@ -22,6 +21,7 @@ from .common import (
     with_remapped_qubits,
 )
 from .memory import (
+    MemoryExperimentParts,
     get_logical_bell_prep,
     get_memory_experiment,
     get_memory_experiment_parts,
@@ -49,13 +49,12 @@ from .transversal import (
 
 __all__ = [
     "AlphaSyndrome",
-    "get_logical_error_and_discard_rates",
+    "get_logical_error_and_discard_rate",
     "get_nontrivial_logical_stabilizers",
     "get_state_prep_diagnostic_circuit",
     "get_state_prep_diagnostic_tasks",
     "DetectorRecord",
     "MeasurementRecord",
-    "MemoryExperimentParts",
     "QubitIDs",
     "Record",
     "get_encoder_and_decoder",
@@ -65,6 +64,7 @@ __all__ = [
     "get_pauli_product_measurements",
     "restrict_to_qubits",
     "with_remapped_qubits",
+    "MemoryExperimentParts",
     "get_logical_bell_prep",
     "get_memory_experiment",
     "get_memory_experiment_parts",
