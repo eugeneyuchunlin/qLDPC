@@ -37,7 +37,7 @@ def test_qubit_ids() -> None:
         range(len(code) + code.num_checks, len(code) + code.num_checks + 5)
     )
 
-    qubit_ids.shift(3)
+    qubit_ids = qubit_ids.shifted(3)
     assert qubit_ids.data == tuple(qq + 3 for qq in data_ids)
     assert qubit_ids.all_qubits == qubit_ids.data + qubit_ids.check + qubit_ids.ancilla
 

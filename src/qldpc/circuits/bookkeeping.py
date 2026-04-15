@@ -93,6 +93,13 @@ class QubitIDs:
         self.checks_z = tuple(qq + shift for qq in self.checks_z)
         return self
 
+    def shifted(self, shift: int) -> QubitIDs:
+        """New QubitIDs object with shifted qubit indices."""
+        qubit_ids = QubitIDs(self.data, self.check, self.ancilla)
+        qubit_ids.checks_x = self.checks_x
+        qubit_ids.checks_z = self.checks_z
+        return qubit_ids.shift(shift)
+
     def add_ancillas(self, number: int) -> None:
         """Add ancilla qubits."""
         if number > 0:
