@@ -55,7 +55,7 @@ class QubitIDs:
         yield from (self.data, self.check, self.ancilla)
 
     @property
-    def all(self) -> tuple[int, ...]:
+    def all_qubits(self) -> tuple[int, ...]:
         """Serialized tuple of all qubits tracked by this QubitIDs object."""
         return self.data + self.check + self.ancilla
 
