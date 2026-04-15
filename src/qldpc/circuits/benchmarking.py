@@ -320,7 +320,7 @@ def get_logical_error_and_discard_rate(
             decoders=["custom"],
             custom_decoders={"custom": sinter_decoder},
             num_shots=num_samples,
-            # other options such as num_workers=os.cpu_count() or max_errors=100,
+            # other options such as num_workers=os.cpu_count() or max_errors=100
         )
 
     Args:
