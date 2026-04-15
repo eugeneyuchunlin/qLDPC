@@ -54,6 +54,11 @@ class QubitIDs:
         """Iterate over the collections of qubits tracked by this QubitIDs object."""
         yield from (self.data, self.check, self.ancilla)
 
+    @property
+    def all(self) -> tuple[int, ...]:
+        """Serialized tuple of all qubits tracked by this QubitIDs object."""
+        return self.data + self.check + self.ancilla
+
     @staticmethod
     def from_code(code: codes.QuditCode, *, num_ancillas: int = 0) -> QubitIDs:
         """Initialize from an error-correcting code with specific parity checks."""

@@ -39,6 +39,7 @@ def test_qubit_ids() -> None:
 
     qubit_ids.shift(3)
     assert qubit_ids.data == tuple(qq + 3 for qq in data_ids)
+    assert qubit_ids.all == qubit_ids.data + qubit_ids.check + qubit_ids.ancilla
 
     assert qubit_ids == circuits.QubitIDs.validated(qubit_ids, code)
     with pytest.raises(ValueError, match="invalid for the given code"):
