@@ -236,7 +236,7 @@ class LookupDecoder(Decoder):
 
     def __init__(
         self,
-        pcm_or_dem: IntegerArray,
+        pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
         max_weight: int,
         *,
         symplectic: bool = False,
@@ -335,7 +335,7 @@ class WeightedLookupDecoder(LookupDecoder):
 
     def __init__(
         self,
-        pcm_or_dem: IntegerArray,
+        pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
         max_weight: int,
         *,
         symplectic: bool = False,
