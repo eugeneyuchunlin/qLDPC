@@ -222,7 +222,7 @@ class LookupDecoder(Decoder):
 
     If provided a penalty_func that maps an error to a real number (i.e., a penalty), the decoder
     only assigns correction ee to syndrome ss if (a) ss has no assigned correction, or (b) the
-    penalty of ee is smaller than the penalty of the correction currently assigned to ss.
+    penalty of ee is <= the penalty of the correction currently assigned to ss.
 
     If provided an error_channel of independent probabilities for each "error mechanism" (associated
     with one column of the parity check matrix), construct a penalty_func that penalizes unlikely
@@ -264,10 +264,10 @@ class LookupDecoder(Decoder):
         )
 
         self.shape: tuple[int, ...] = pcm.shape
-        self.syndrome_to_correction = {}
+        self.syndrome_to_correction: dict[tuple[int, ...], npt.NDArray[np.int_]] = {}
 
         error_weights: dict[tuple[int, ...], float] = {}
-        for error, syndrome in LookupDecoder.iter_errors_and_syndomes(pcm, max_weight, symplectic):
+        for error, syndrome in LookupDecoder.iter_errors_and_syndromes(pcm, max_weight, symplectic):
             if penalty_func is None:
                 self.syndrome_to_correction[syndrome] = error
             elif (error_weight := penalty_func(error)) <= error_weights.get(syndrome, np.inf):
@@ -275,7 +275,7 @@ class LookupDecoder(Decoder):
                 self.syndrome_to_correction[syndrome] = error
 
     @staticmethod
-    def iter_errors_and_syndomes(
+    def iter_errors_and_syndromes(
         matrix: IntegerArray, max_weight: int, symplectic: bool
     ) -> Iterator[tuple[npt.NDArray[np.int_], tuple[int, ...]]]:
         """Iterate over all errors that this decoder considers, and their associated syndromes.
@@ -304,7 +304,7 @@ class LookupDecoder(Decoder):
         """Decode an error syndrome and return an inferred error."""
         return self.syndrome_to_correction.get(
             tuple(syndrome.view(np.ndarray)), np.zeros(self.shape[1], dtype=int)
-        )
+        ).copy()
 
     @staticmethod
     def build_penalty_func(
@@ -350,7 +350,7 @@ class WeightedLookupDecoder(LookupDecoder):
         self.syndrome_to_candidates: dict[tuple[int, ...], list[npt.NDArray[np.int_]]] = (
             collections.defaultdict(list)
         )
-        for error, syndrome in LookupDecoder.iter_errors_and_syndomes(pcm, max_weight, symplectic):
+        for error, syndrome in LookupDecoder.iter_errors_and_syndromes(pcm, max_weight, symplectic):
             self.syndrome_to_candidates[syndrome].append(error)
 
     def decode(
@@ -364,7 +364,7 @@ class WeightedLookupDecoder(LookupDecoder):
         errors = self.syndrome_to_candidates.get(
             tuple(syndrome.view(np.ndarray)), [np.zeros(self.shape[1], dtype=int)]
         )
-        return min(errors, key=penalty_func) if penalty_func is not None else errors[-1]
+        return (min(errors, key=penalty_func) if penalty_func is not None else errors[-1]).copy()
 
 
 class ILPDecoder(Decoder):
