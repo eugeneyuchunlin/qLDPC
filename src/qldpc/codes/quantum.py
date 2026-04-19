@@ -24,6 +24,7 @@ import itertools
 import math
 import os
 from collections.abc import Collection, Iterable, Iterator, Sequence
+from typing import TypeVar, Union
 
 import galois
 import networkx as nx
@@ -828,6 +829,11 @@ class BBCode(QCCode):
 # hypergraph product code, lifted product code, and their subsystem variants
 
 
+FieldOrRingArray = TypeVar(
+    "FieldOrRingArray", bound=Union[npt.NDArray[np.int_], npt.NDArray[np.object_]]
+)
+
+
 class HGPCode(CSSCode):
     """Hypergraph product code.
 
@@ -882,6 +888,8 @@ class HGPCode(CSSCode):
     - https://www.youtube.com/watch?v=iehMcUr2saM
     """
 
+    code_a: ClassicalCode
+    code_b: ClassicalCode
     sector_size: npt.NDArray[np.int_]
 
     def __init__(
@@ -991,9 +999,8 @@ class HGPCode(CSSCode):
 
     @staticmethod
     def get_matrix_product(
-        matrix_a: npt.NDArray[np.int_ | np.object_],
-        matrix_b: npt.NDArray[np.int_ | np.object_],
-    ) -> tuple[npt.NDArray[np.int_ | np.object_], npt.NDArray[np.int_ | np.object_]]:
+        matrix_a: FieldOrRingArray, matrix_b: FieldOrRingArray
+    ) -> tuple[FieldOrRingArray, FieldOrRingArray]:
         """Hypergraph product of two parity check matrices."""
         # construct the nontrivial blocks of the final parity check matrices
         mat_H1_In2 = np.kron(matrix_a, np.eye(matrix_b.shape[1], dtype=int))
@@ -1085,7 +1092,7 @@ class HGPCode(CSSCode):
 
     @staticmethod
     def get_canonical_logical_ops(
-        code_a: ClassicalCode, code_b: ClassicalCode
+        matrix_a: ClassicalCode | galois.FieldArray, matrix_b: ClassicalCode | galois.FieldArray
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
         """Canonical logical operators for the hypergraph product code.
 
@@ -1096,21 +1103,24 @@ class HGPCode(CSSCode):
         X-type logical operators are "horizontal" in sector (0, 0) and "vertical" in sector (1, 1).
         Vice versa for Z-type logical operators.
         """
-        assert code_a.field is code_b.field
-        code_field = code_a.field
+        matrix_a = matrix_a.matrix if isinstance(matrix_a, ClassicalCode) else matrix_a
+        matrix_b = matrix_b.matrix if isinstance(matrix_b, ClassicalCode) else matrix_b
 
-        generator_a = code_a.generator.row_reduce()
-        generator_b = code_b.generator.row_reduce()
-        generator_a_T = code_a.matrix.T.null_space()
-        generator_b_T = code_b.matrix.T.null_space()
+        assert type(matrix_a) is type(matrix_a)
+        field = type(matrix_a)
 
-        pivots_a = code_field.Zeros(generator_a.shape)
-        pivots_b = code_field.Zeros(generator_b.shape)
+        generator_a = matrix_a.null_space()
+        generator_b = matrix_b.null_space()
+        generator_a_T = matrix_a.T.null_space()
+        generator_b_T = matrix_b.T.null_space()
+
+        pivots_a = field.Zeros(generator_a.shape)
+        pivots_b = field.Zeros(generator_b.shape)
         pivots_a[range(len(pivots_a)), qldpc.math.first_nonzero_cols(generator_a)] = 1
         pivots_b[range(len(pivots_b)), qldpc.math.first_nonzero_cols(generator_b)] = 1
 
-        pivots_a_T = code_field.Zeros(generator_a_T.shape)
-        pivots_b_T = code_field.Zeros(generator_b_T.shape)
+        pivots_a_T = field.Zeros(generator_a_T.shape)
+        pivots_b_T = field.Zeros(generator_b_T.shape)
         pivots_a_T[range(len(pivots_a_T)), qldpc.math.first_nonzero_cols(generator_a_T)] = 1
         pivots_b_T[range(len(pivots_b_T)), qldpc.math.first_nonzero_cols(generator_b_T)] = 1
 
@@ -1122,7 +1132,7 @@ class HGPCode(CSSCode):
 
         logical_ops_x = scipy.linalg.block_diag(logical_ops_x_l, logical_ops_x_r)
         logical_ops_z = scipy.linalg.block_diag(logical_ops_z_l, logical_ops_z_r)
-        return logical_ops_x.view(code_field), logical_ops_z.view(code_field)
+        return logical_ops_x.view(field), logical_ops_z.view(field)
 
     def _get_distance_exact(self, pauli: PauliXZ | None) -> int | float:
         """Exact distance calculation for hypergraph product codes.
@@ -1246,9 +1256,8 @@ class SHPCode(CSSCode):
 
     @staticmethod
     def get_matrix_product(
-        matrix_a: npt.NDArray[np.int_ | np.object_],
-        matrix_b: npt.NDArray[np.int_ | np.object_],
-    ) -> tuple[npt.NDArray[np.int_ | np.object_], npt.NDArray[np.int_ | np.object_]]:
+        matrix_a: FieldOrRingArray, matrix_b: FieldOrRingArray
+    ) -> tuple[FieldOrRingArray, FieldOrRingArray]:
         """Subsystem hypergraph product of two parity check matrices."""
         matrix_x = np.kron(matrix_a, np.eye(matrix_b.shape[1], dtype=int)).view(type(matrix_a))
         matrix_z = np.kron(np.eye(matrix_a.shape[1], dtype=int), matrix_b).view(type(matrix_a))
@@ -1256,27 +1265,30 @@ class SHPCode(CSSCode):
 
     @staticmethod
     def get_canonical_logical_ops(
-        code_x: ClassicalCode, code_z: ClassicalCode
+        matrix_x: ClassicalCode | galois.FieldArray, matrix_z: ClassicalCode | galois.FieldArray
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
         """Canonical logical operators for the subsystem hypergraph product code.
 
         These operators are essentially those in Theorem VIII.10 of arXiv:2502.07150v1, generalized
         slightly to account for the possibility that code_x != code_z.
         """
-        assert code_x.field is code_z.field
-        code_field = code_x.field
+        matrix_x = matrix_x.matrix if isinstance(matrix_x, ClassicalCode) else matrix_x
+        matrix_z = matrix_z.matrix if isinstance(matrix_z, ClassicalCode) else matrix_z
 
-        generator_x = code_x.generator.row_reduce()
-        generator_z = code_z.generator.row_reduce()
+        assert type(matrix_x) is type(matrix_x)
+        field = type(matrix_x)
 
-        pivots_x = code_field.Zeros(generator_x.shape)
-        pivots_z = code_field.Zeros(generator_z.shape)
+        generator_x = matrix_x.null_space()
+        generator_z = matrix_z.null_space()
+
+        pivots_x = field.Zeros(generator_x.shape)
+        pivots_z = field.Zeros(generator_z.shape)
         pivots_x[range(len(pivots_x)), qldpc.math.first_nonzero_cols(generator_x)] = 1
         pivots_z[range(len(pivots_z)), qldpc.math.first_nonzero_cols(generator_z)] = 1
 
         logical_ops_x = np.kron(pivots_x, generator_z)
         logical_ops_z = np.kron(generator_x, pivots_z)
-        return logical_ops_x.view(code_field), logical_ops_z.view(code_field)
+        return logical_ops_x.view(field), logical_ops_z.view(field)
 
     def _get_distance_exact(self, pauli: PauliXZ | None) -> int | float:
         """Exact distance calculation for subsystem hypergraph product codes."""
@@ -1340,6 +1352,10 @@ class LPCode(CSSCode):
     - https://arxiv.org/abs/2306.16400
     """
 
+    matrix_a: abstract.RingArray
+    matrix_b: abstract.RingArray
+    sector_size: npt.NDArray[np.int_]
+
     def __init__(
         self,
         matrix_a: npt.NDArray[np.object_] | Sequence[Sequence[object]],
@@ -1348,19 +1364,19 @@ class LPCode(CSSCode):
         """Lifted product of two RingArrays, as in arXiv:2012.04068."""
         if matrix_b is None:
             matrix_b = matrix_a
-        matrix_a = abstract.RingArray(matrix_a)
-        matrix_b = abstract.RingArray(matrix_b)
-        field = matrix_a.field.order
+        self.matrix_a = abstract.RingArray(matrix_a)
+        self.matrix_b = abstract.RingArray(matrix_b)
+        field = self.matrix_a.field.order
 
         # identify X-sector and Z-sector parity checks
-        matrix_x, matrix_z = HGPCode.get_matrix_product(matrix_a, matrix_b)
+        matrix_x, matrix_z = HGPCode.get_matrix_product(self.matrix_a, self.matrix_b)
         assert isinstance(matrix_x, abstract.RingArray)
         assert isinstance(matrix_z, abstract.RingArray)
 
         # identify the number of qudits in each sector
-        self.sector_size = matrix_a.group.lift_dim * np.outer(
-            matrix_a.shape[::-1],
-            matrix_b.shape[::-1],
+        self.sector_size = self.matrix_a.group.lift_dim * np.outer(
+            self.matrix_a.shape[::-1],
+            self.matrix_b.shape[::-1],
         )
 
         # if Hadamard-transforming qudits, conjugate those in the (1, 1) sector by default
