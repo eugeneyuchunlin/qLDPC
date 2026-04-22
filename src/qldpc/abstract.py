@@ -5,6 +5,9 @@ a subgroup of the symmetric group.  Group members subclass the SymPy Permutation
 
 !!! WARNINGS !!!
 
+First and foremoest, this module does not promise to be performant.  If you need to do heavy
+numerical abstract algebra, you're probably better served by GAP or MAGMA (or maybe SageMath).
+
 This module only supports representations of group members by orthogonal matrices over finite
 fields.  The restriction to orthogonal representations allows identifying the "transpose" of a group
 member p with respect to a representation (lift) L, which is defined by enforcing L(p.T) = L(p).T.
@@ -42,6 +45,7 @@ import galois
 import numpy as np
 import numpy.typing as npt
 import scipy.linalg
+import sympy.abc
 import sympy.combinatorics as comb
 import sympy.core
 
@@ -620,6 +624,47 @@ class RingMember:
             value, member = (1, term) if isinstance(term, GroupMember) else term
             self._vec[member] += self.field(value)
 
+    def __str__(self) -> str:
+        """Write this RingMember as a polynomial."""
+        # identify symbols for the generators of the base group
+        num_gens = len(self.group.generators)
+        if num_gens <= 3:
+            symbols = sympy.symbols("x:z", commutative=self.group.is_abelian)[:num_gens]
+        elif num_gens <= 26:
+            symbols = sympy.symbols("a:z", commutative=self.group.is_abelian)[-num_gens:]
+        else:  # pragma: no cover
+            index_length = int(np.ceil(np.log10(num_gens + 1)))
+            symbols = [
+                sympy.Symbol(f"x_{index:0{index_length}}", commutative=self.group.is_abelian)
+                for index in range(num_gens)
+            ]
+
+        if isinstance(self.group, AbelianGroup):
+            # Abelian groups are an easy special case for building the polynomial
+            monomials = []
+            for powers in itertools.product(*[range(order) for order in self.group.orders]):
+                factors = [symbol**power for symbol, power in zip(symbols, powers)]
+                monomials.append(functools.reduce(operator.mul, factors))
+            terms = [
+                int(coeff) * monomial
+                for coeff, monomial in zip(self.to_vector(), monomials)
+                if coeff
+            ]
+
+        else:
+            # general-purpose fallback
+            sympy_group = self.group.to_sympy()
+            gen_to_symbol = {gen: symbol for gen, symbol in zip(sympy_group.generators, symbols)}
+
+            terms = []
+            for x_g, gg in self:
+                gens = sympy_group.generator_product(gg, original=True)
+                factors = [gen_to_symbol[gen] for gen in gens]
+                monomial = functools.reduce(operator.mul, factors, 1)
+                terms.append(int(x_g) * monomial)
+
+        return str(sum(terms) + sympy.core.numbers.Zero()).replace("**", "^").replace("*", " ")
+
     def __eq__(self, other: object) -> bool:
         return (
             isinstance(other, RingMember)
@@ -868,6 +913,9 @@ class RingArray(npt.NDArray[np.object_]):
             setattr(result, "_ring", next(iter(rings), None))
         return result
 
+    def __str__(self) -> str:
+        return np.array2string(self, formatter={"object": str}, separator=", ")
+
     @property
     def ring(self) -> GroupRing:
         """Base ring of this RingArray."""
@@ -969,11 +1017,11 @@ class RingArray(npt.NDArray[np.object_]):
         vals = [val.to_vector() for val in self.ravel()]
         return np.asarray(vals).ravel().view(self.field)
 
-    def null_space(self, *, force_heuristic: bool = True) -> RingArray:
+    def null_space(self, *, row_reduce: bool = True) -> RingArray:
         """Construct a matrix of null-space row vectors for this RingArray.
 
         The transpose of the null-space matrix is annihilated by this RingArray, such that
-        np.any(self @ self.null_space().T) is False
+        np.any(self @ self.null_space().T) is np.False_.
         """
         assert self.ndim == 2
 
@@ -982,148 +1030,199 @@ class RingArray(npt.NDArray[np.object_]):
         null_field_vectors = self.regular_lift().null_space()
 
         # collect ring-valued null row vectors (that is, transposed null column vectors)
-        null_vectors = ~RingArray.from_field_array(
+        null_space = ~RingArray.from_field_array(
             self.ring,
             null_field_vectors.reshape(len(null_field_vectors), -1, self.group.order),
         )
+        if not row_reduce:
+            return null_space
 
-        return null_vectors.row_reduce(force_heuristic=force_heuristic)
+        try:
+            return null_space.row_reduce()
+        except NotImplementedError as error:
+            raise NotImplementedError(
+                "Cannot row-reduce the null-space matrix of this RingArray.  Try calling"
+                f" RingArray.null_space(row_reduce=False).  Error from row reduction:\n{error}"
+            )
 
-    def row_reduce(self, *, force_heuristic: bool = True) -> RingArray:
-        """Compute the reduced row Echelon form of this RingArray, or the closest we can get to it.
+    def row_reduce(self) -> RingArray:
+        """Compute an appropriate generalization of the reduced row Echelon form for this RingArray.
 
-        Use a series of heuristics for (possibly only partial) row reduction.  Every row in the
-        returned RingArray is guaranteed to satisfy one the following:
-        (a) there is some column at which the row is 1 and all other rows are 0, or
-        (b) all entries of the row are non-invertible.
-        Moreover, all rows of the returned RingArray are linearly independent and nonzero.
+        In full generality, what we seek is a reduced Groebner basis for the row module of this
+        RingArray.  In some special cases, this basis coincides with the Howell normal form.
+        """
+        if isinstance(self.group, CyclicGroup):
+            return self._row_reduce_cyclic()
+        # TODO: special case for principal ideal rings that are not based on a cyclic group
+        if self.ring.is_semisimple:
+            return self._row_reduce_semisimple()
+        return self._row_reduce_general()
+
+    def _row_reduce_cyclic(self) -> RingArray:
+        """Compute the Howell normal form of a RingArray based on the cyclic group.
+
+        If the base group is a cyclic group, then the base ring is a univariate polynomial ring.
+        The extended Euclidean algorithm (galois.egcd) then equips us with invertible row operations
+        that we can use to "reduce" the RingArray into a Howell normal form, which is the closest we
+        can get to a reduced row Echelon form (RREF) for this RingArray.
+
+        References:
+        - https://en.wikipedia.org/wiki/Howell_normal_form
+        - https://github.com/m-webster/XPFpackage/blob/570ea89/Examples/A.1_howell_matrix.ipynb
         """
         assert self.ndim == 2
+        assert isinstance(self.group, CyclicGroup)
 
-        if self.ring.is_semisimple and not force_heuristic:
-            return self._exact_row_reduce()
+        # convert into 3-D, where the third dimension stores coefficients for group members
+        field_array = self.to_field_array()
 
-        if not force_heuristic:
-            warnings.warn(
-                "RingArray.row_reduce only supports exact row reduction for semisimple group"
-                " algebras, for which the field.characteristic does not divide the group.order."
-                "  Using heuristics for (possibly only partial) row reduction instead.",
-            )
-        return self._heuristic_row_reduce()
+        # The "modulus" of underlying polynomial ring for this RingArray: x^n - 1.
+        # Analogous to N in the ring of integers modulo N.
+        modulus_poly = galois.Poly([1] + [0] * (self.group.order - 1) + [-1], self.field)
 
-    def _exact_row_reduce(self) -> RingArray:
-        """Perform exact row reduction based on the Wedderburn-Artin decomposition of the base ring.
+        def _multiply(poly: galois.Poly, vecs: galois.FieldArray) -> galois.FieldArray:
+            """Multiply a member of a polynomial ring into a ring-valued matrix.
+
+            The first argument represents a ring member by a polynomial, while the second argument
+            represents a (vecs.ndim-1)-dimensional array of polynomials, such that
+            vecs[*entry, c] is the coefficient of x^c in the given entry of vec.
+            """
+            new_vecs = vecs.Zeros(vecs.shape)
+            for coeff, degree in zip(poly.nonzero_coeffs, poly.nonzero_degrees):
+                new_vecs += coeff * np.roll(vecs, degree, axis=-1)
+            return new_vecs
+
+        pivot_row = 0
+        pivot_col = 0
+        while pivot_row < field_array.shape[0] and pivot_col < field_array.shape[1]:
+            # look for a pivot in this column
+            pivot_found = False
+            for row in range(pivot_row, field_array.shape[0]):
+                if np.any(field_array[row, pivot_col]):
+                    field_array[[pivot_row, row]] = field_array[[row, pivot_row]]
+                    pivot_found = True
+                    break
+
+            if not pivot_found:
+                pivot_col += 1
+                continue
+
+            # use invertible row operations to zero out all rows below at the pivot column
+            for other_row in range(pivot_row + 1, self.shape[0]):
+                aa_vec = field_array[pivot_row]
+                bb_vec = field_array[other_row]
+                if not np.any(bb_vec):
+                    continue
+                """
+                Let:
+                    aa = aa_vec[pivot_row]
+                    bb = bb_vec[other_row]
+                We will transform rows as
+                    [aa_vec, bb_vec] --> [[ss, tt], [uu, vv]] @ [aa_vec, bb_vec]
+                where
+                    (1) ss * aa + tt * bb = gcd(aa, bb) = gg
+                    (2) uu * aa + vv * bb = 0
+                    (3) det([[ss, tt], [uu, vv]]) = ss * vv - tt * uu = 1
+                Condition (3) ensures that this transformation is invertible.
+                Condition (2) ensures that bb_vec gets zeroed out at the pivot column.
+                """
+                aa_poly = galois.Poly(aa_vec[pivot_col, ::-1], field=self.field)
+                bb_poly = galois.Poly(bb_vec[pivot_col, ::-1], field=self.field)
+
+                # find gg, ss, tt, uu, vv, and work around some typing bugs/errors in galois/mypy
+                gg_poly: galois.Poly
+                ss_poly: galois.Poly
+                tt_poly: galois.Poly
+                gg_poly, ss_poly, tt_poly = galois.egcd(aa_poly, bb_poly)  # type:ignore[assignment,arg-type]
+                uu_poly = -bb_poly // gg_poly
+                vv_poly = aa_poly // gg_poly
+
+                new_aa_vec = _multiply(ss_poly, aa_vec) + _multiply(tt_poly, bb_vec)
+                new_bb_vec = _multiply(uu_poly, aa_vec) + _multiply(vv_poly, bb_vec)
+                field_array[pivot_row] = new_aa_vec
+                field_array[other_row] = new_bb_vec
+
+            """
+            "Reduce" the pivot:
+            (1) Find ff for which ff * pivot = gcd(pivot, modulus).
+            (2) Multiply the pivot row by ff, reducing the pivot to gcd(pivot, modulus).
+            """
+            pivot_poly = galois.Poly(field_array[pivot_row, pivot_col, ::-1], field=self.field)
+            gcd_poly: galois.Poly
+            ff_poly: galois.Poly
+            gcd_poly, ff_poly, _ = galois.egcd(pivot_poly, modulus_poly)  # type:ignore[assignment,arg-type]
+            if pivot_poly != gcd_poly:
+                field_array[pivot_row] = _multiply(ff_poly, field_array[pivot_row])
+                pivot_poly = gcd_poly
+
+            """
+            Reduce all rows above the pivot_row at the pivot_column.
+            If some value in the pivot_col above the pivot_row can be written as a multiple of the
+            pivot plus a remainder, use row operations to subtract off that multiple of the pivot,
+            leaving only the remainder.
+            """
+            for other_row in range(pivot_row):
+                other_poly = galois.Poly(field_array[other_row, pivot_col, ::-1], field=self.field)
+                div_poly = other_poly // pivot_poly
+                if div_poly != 0:
+                    field_array[other_row] -= _multiply(div_poly, field_array[pivot_row])
+
+            """
+            Check whether the pivot has a nontrivial annihilator, with annihilator * pivot = 0.
+            If a nontrivial annihilator is found, append a new row with the pivot annihilated.
+            """
+            annihilator_poly = modulus_poly // pivot_poly
+            if annihilator_poly != 0:
+                new_row = _multiply(annihilator_poly, field_array[pivot_row])
+                field_array = np.append(field_array, [new_row], axis=0).view(self.field)
+
+            pivot_row += 1
+            pivot_col += 1
+
+        # remove all-zero rows and return
+        field_array = field_array[np.any(field_array, axis=(1, 2))]
+        return RingArray.from_field_array(self.ring, field_array)
+
+    def _row_reduce_semisimple(self) -> RingArray:
+        """Perform row reduction based on the Wedderburn-Artin decomposition of the base ring.
 
         A semisimple ring can be decomposed into a direct product of simple rings, which are in turn
         isomorphic to matrix algebras over finite fields.  This method thereby row-reduces a
-        RingArray over a semisimple ring by
+        RingArray over a semisimple ring by...
         (a) decomposing the RingArray into its simple components,
         (b) "lifting" each component to a matrix over a finite field,
-        (c) row-reducing these matrices, and
-        (d) mapping back to a RingArray over the original semisimple ring.
-        At least, that's the plan.  It has yet to be implemented.
-        """
-        assert self.ring.is_semisimple
-        raise NotImplementedError(
-            "We only aspire to perform exact row reduction over semisimple rings :("
-        )
-
-    def _heuristic_row_reduce(self) -> RingArray:
-        """Use heuristics for (possibly only partial) row reduction.
-
-        Warning: this method is unoptimized.  There is a lot of room for speeding things up.
-        """
-
-        # greedily convert invertible entries into "pivots" that are uniquely nonzero in some column
-        matrix = self._reduce_rows_with_invertible_entries()
-
-        # split matrix into rows with pivots, and all other rows
-        pivot_matrix, non_pivot_matrix = matrix._split_by_pivots()
-
-        if non_pivot_matrix.size:
-            # identify a minimal basis for the span of the non-pivot rows
-            non_pivot_matrix = non_pivot_matrix._remove_linearly_dependent_rows()
-
-        return np.vstack([pivot_matrix, non_pivot_matrix]).view(RingArray)
-
-    def _reduce_rows_with_invertible_entries(self, *, restart_call: bool = False) -> RingArray:
-        """Row-reduce greedily using invertible entries.
-
-        Loop over every row.  If that row contains an invertible entry, normalize the row by this
-        entry's inverse, and zero out all other rows at the corresponding column by subtracting off
-        an appropriate multiple of this row (as you would with ordinary Gaussian elimination).
+        (c) row-reducing these matrices using ordinary linear algebra over fields,
+        (d) mapping back to a RingArray over the original semisimple ring, and
+        (e) doing some final cleanup (TBD).
         """
         assert self.ndim == 2
-        rows: slice | list[int]
-
-        matrix = self if restart_call else self.copy()
-        num_rows, num_cols = self.shape
-
-        row_reductions_made = False  # did we perform row reductions?
-        noninvertible_rows = []  # which rows have only non-invertible entries?
-        for row in range(num_rows):
-            row_vector = matrix[row]
-
-            # look for an invertible entry in this row
-            for col, entry in enumerate(row_vector):
-                if inverse := entry.inverse():
-                    break
-
-            """
-            If we found an invertible entry,
-            - multiply this row by the inverse, so that this entry is 1, and
-            - zero out the corresponding column in all other rows.
-            """
-            if inverse:
-                # "normalize" the entry to 1, and zero out its column in all other rows
-                new_vector = inverse * row_vector
-                matrix[row] = new_vector
-                for rows in [slice(None, row), slice(row + 1, num_rows)]:
-                    matrix[rows] = matrix[rows] - matrix[rows, col, None] * new_vector[None, :]
-                row_reductions_made = True
-
-            else:
-                noninvertible_rows.append(row)
-
-        if row_reductions_made and noninvertible_rows:
-            # some non-invertible entries may have become invertible, so try row-reducing again
-            rows = [row for row in noninvertible_rows if np.any(matrix[row])]
-            matrix[rows].view(RingArray)._reduce_rows_with_invertible_entries(restart_call=True)
-
-        return matrix
-
-    def _split_by_pivots(self, *, allow_non_units: bool = True) -> tuple[RingArray, RingArray]:
-        """Split into a matrix with all "pivot" rows, and a matrix with all other nonzero rows.
-
-        "Pivot" rows are those that are uniquely nonzero in some column.  If allow_non_unit is
-        False, this nonzero entry is also required to be a unit (invertible entry) of the base ring
-        (group algebra) of this RingArray.
-        """
-        self_as_bool = self.astype(bool)
-        pivot_rows = np.zeros(len(self), dtype=bool)
-        pivot_cols = np.sum(self_as_bool, axis=0) == 1
-        for col in np.argwhere(pivot_cols):
-            row = np.argwhere(self_as_bool[:, col])[0][0]
-            pivot_rows[row] = allow_non_units or self[row, col][0].inverse()
-        pivot_matrix = self[pivot_rows]
-        non_pivot_matrix = self[~pivot_rows]
-        return (
-            pivot_matrix.view(RingArray),
-            non_pivot_matrix[np.any(non_pivot_matrix, axis=1)].view(RingArray),
+        assert self.ring.is_semisimple
+        raise NotImplementedError(
+            "We only aspire to support row reduction for RingArrays over semisimple rings :("
         )
 
-    def _remove_linearly_dependent_rows(self) -> RingArray:
-        """Remove rows that can be expressed as ring-linear combinations of others.
+    def _row_reduce_general(self) -> RingArray:
+        """Compute a reduced Groebner basis for the row module of this RingArray."""
+        assert self.ndim == 2
+        raise NotImplementedError(
+            "We need to compute a reduced Groebner basis, in full generality.  Here be dragons."
+        )
+
+    def without_dependent_rows(self) -> RingArray:
+        r"""Remove rows that can be expressed as left-ring-linear combinations of others.
+
+        A row v is a left-ring-linear combination of rows (w_1, w_2, ...) iff v = sum_i r_i w_i,
+        where (r_1, r_2, ...) are elements of the base ring.
 
         Due to peculiarities of working with modules (the generalization of a vector space when
-        working over rings, as opposed to fields), we have to start by considering all rows in the
+        working over rings, rather than fields), we have to start by considering all rows in the
         RingArray, and checking individually whether each row lies in the span of the rest; if so,
         we remove that row.  "Trimming down" to a minimal basis, as opposed to "building one up"
         by accumulating linearly independent row vectors, is necessary because rows may have
         nontrivial annihilators, which is to say that a row v may have a ring element r for which
-        r * v = 0 even though r and v are nonzero.  It is therefore possible, for examle, for a row
-        v to lie in the left-ring-linear span of another row w (v = r * w for some r), but not the
-        other way around (there is no r for which w = r * v).
+        r * v = 0 even though r and v are both nonzero.  It is therefore possible, for example, for
+        a row v to lie in the left-ring-linear span of another row w (v = r * w for some r), but not
+        the other way around (there is no r for which w = r * v).
         """
         assert self.ndim == 2
 
@@ -1144,7 +1243,7 @@ class RingArray(npt.NDArray[np.object_]):
         """
         field_matrix = (~ring_matrix).view(RingArray).regular_lift()
 
-        # throw out rows that can be expressed as ring-linear combinations of other rows
+        # throw out rows that can be expressed as left-ring-linear combinations of other rows
         rows_to_keep = np.ones((len(ring_matrix), self.group.order), dtype=bool)
         for row in range(len(ring_matrix) - 1, -1, -1):
             rows_to_keep[row, :] = False
@@ -1209,7 +1308,10 @@ class AbelianGroup(Group):
     initialized with direct_sum=True, the group members get lifted to a direct sum ⨁_i L(g_i)^{a_i}.
     """
 
+    orders: tuple[int, ...]
+
     def __init__(self, *orders: int, direct_sum: bool = False) -> None:
+        self.orders = orders
         group = comb.named_groups.AbelianGroup(*orders)
         order_text = ",".join(map(str, orders))
         name = f"AbelianGroup({order_text})"
@@ -1250,6 +1352,7 @@ class CyclicGroup(AbelianGroup):
     """
 
     def __init__(self, order: int) -> None:
+        self.orders = (order,)
         identity_mat = np.eye(order, dtype=int)
 
         # build lift manually, which is faster than the default lift
