@@ -1184,17 +1184,7 @@ class RingArray(npt.NDArray[np.object_]):
         return RingArray.from_field_array(self.ring, field_array)
 
     def _row_reduce_semisimple(self) -> RingArray:
-        """Perform row reduction based on the Wedderburn-Artin decomposition of the base ring.
-
-        A semisimple ring can be decomposed into a direct product of simple rings, which are in turn
-        isomorphic to matrix algebras over finite fields.  This method thereby row-reduces a
-        RingArray over a semisimple ring by...
-        (a) decomposing the RingArray into its simple components,
-        (b) "lifting" each component to a matrix over a finite field,
-        (c) row-reducing these matrices using ordinary linear algebra over fields,
-        (d) mapping back to a RingArray over the original semisimple ring, and
-        (e) doing some final cleanup (TBD).
-        """
+        """Perform row reduction based on the Wedderburn-Artin decomposition of the base ring."""
         assert self.ndim == 2
         assert self.ring.is_semisimple
         raise NotImplementedError(
