@@ -1188,7 +1188,7 @@ class RingArray(npt.NDArray[np.object_]):
         assert self.ndim == 2
         assert self.ring.is_semisimple
         raise NotImplementedError(
-            "We only aspire to support row reduction for RingArrays over semisimple rings :("
+            "We aspire to support row reduction for RingArrays over semisimple rings"
         )
 
     def _row_reduce_general(self) -> RingArray:

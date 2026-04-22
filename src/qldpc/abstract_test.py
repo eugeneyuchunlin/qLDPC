@@ -363,7 +363,7 @@ def test_ring_row_reduce(pytestconfig: pytest.Config) -> None:
 
     # we cannot reduce a RingArray based on other groups
     for group, match in [
-        (abstract.AbelianGroup(3, 3), "We only aspire"),
+        (abstract.AbelianGroup(3, 3), "We aspire"),
         (abstract.DihedralGroup(3), "Here be dragons"),
     ]:
         ring = abstract.GroupRing(group)
