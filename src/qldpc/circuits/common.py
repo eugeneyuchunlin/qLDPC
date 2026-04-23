@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import functools
 from collections.abc import Callable, Mapping, Sequence
-from typing import ParamSpec, TypeVar, Union
+from typing import ParamSpec, TypeVar
 
 import numpy as np
 import numpy.typing as npt
@@ -28,7 +28,7 @@ import stim
 from qldpc import codes, math
 from qldpc.objects import Node, Pauli
 
-CircuitOrTableau = TypeVar("CircuitOrTableau", bound=Union[stim.Circuit, stim.Tableau])
+CircuitOrTableau = TypeVar("CircuitOrTableau", stim.Circuit, stim.Tableau)
 Params = ParamSpec("Params")
 
 

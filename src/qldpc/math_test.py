@@ -18,6 +18,7 @@ limitations under the License.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 import stim
 
 import qldpc
@@ -54,6 +55,15 @@ def test_block_matrix() -> None:
     blocks = [[eye, 1], [0, eye]]
     matrix = np.block([[eye, eye], [zero, eye]])
     assert np.array_equal(qldpc.math.block_matrix(blocks), matrix)
+
+    with pytest.raises(ValueError, match="Inconsistent numbers of blocks in each row"):
+        qldpc.math.block_matrix([[0, 1], [1]])
+    with pytest.raises(ValueError, match="Inconsistent row numbers"):
+        qldpc.math.block_matrix([[np.eye(1), np.eye(2)]])
+    with pytest.raises(ValueError, match="Inconsistent column numbers"):
+        qldpc.math.block_matrix([[np.eye(1)], [np.eye(2)]])
+    with pytest.raises(ValueError, match="Inconsistent block data types"):
+        qldpc.math.block_matrix([[np.eye(1, dtype=int), np.eye(1, dtype=float)]])
 
 
 def test_log() -> None:

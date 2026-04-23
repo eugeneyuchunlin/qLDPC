@@ -2160,7 +2160,7 @@ class CSSCode(QuditCode):
     @functools.cached_property
     def matrix(self) -> galois.FieldArray:
         """Overall parity check matrix."""
-        return math.block_matrix([[self.matrix_x, 0], [0, self.matrix_z]]).view(self.field)
+        return scipy.linalg.block_diag(self.matrix_x, self.matrix_z).view(self.field)
 
     @property
     def graph_x(self) -> nx.DiGraph:
