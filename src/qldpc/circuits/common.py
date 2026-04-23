@@ -169,21 +169,14 @@ def _get_logical_tableau_from_code_data(
 
     # compute the "upper left" block of the decoded tableau that acts on all logical qubits
     decoded_tableau = encoder.then(physical_tableau).then(decoder)
-    x2x, x2z, z2x, z2z, x_signs, z_signs = decoded_tableau.to_numpy()
-    logical_tableau = stim.Tableau.from_numpy(
-        x2x=x2x[:dimension, :dimension],
-        x2z=x2z[:dimension, :dimension],
-        z2x=z2x[:dimension, :dimension],
-        z2z=z2z[:dimension, :dimension],
-        x_signs=x_signs[:dimension],
-        z_signs=z_signs[:dimension],
-    )
+    logical_tableau = restrict_tableau(decoded_tableau, range(dimension))
 
     if not skip_validation:
         # identify sectors that address logical, gauge, and stabilizer qubits
         sector_l = slice(dimension)
         sector_g = slice(dimension, dimension + gauge_dimension)
         sector_s = slice(dimension + gauge_dimension, len(encoder))
+        x2x, x2z, z2x, z2z, *_ = decoded_tableau.to_numpy()
 
         # sanity check: stabilizers, logicals, and gauge operators should not pick up destabilizers
         assert not np.any(z2x[:, sector_s])
@@ -197,6 +190,19 @@ def _get_logical_tableau_from_code_data(
         assert not np.any(z2z[sector_g, sector_l])
 
     return logical_tableau
+
+
+def restrict_tableau(tableau: stim.Tableau, qubits: Sequence[int]) -> stim.Tableau:
+    """Restrict the given stabilizer tableau to the sub-tableau at the specified qubits."""
+    x2x, x2z, z2x, z2z, x_signs, z_signs = tableau.to_numpy()
+    return stim.Tableau.from_numpy(
+        x2x=x2x[np.ix_(qubits, qubits)],
+        x2z=x2z[np.ix_(qubits, qubits)],
+        z2x=z2x[np.ix_(qubits, qubits)],
+        z2z=z2z[np.ix_(qubits, qubits)],
+        x_signs=x_signs[qubits],
+        z_signs=z_signs[qubits],
+    )
 
 
 def get_pauli_product_measurements(

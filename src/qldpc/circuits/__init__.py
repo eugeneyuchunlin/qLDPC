@@ -17,6 +17,7 @@ from .common import (
     get_encoding_tableau,
     get_logical_tableau,
     get_pauli_product_measurements,
+    restrict_tableau,
     restrict_to_qubits,
     with_remapped_qubits,
 )
@@ -62,6 +63,7 @@ __all__ = [
     "get_encoding_tableau",
     "get_logical_tableau",
     "get_pauli_product_measurements",
+    "restrict_tableau",
     "restrict_to_qubits",
     "with_remapped_qubits",
     "MemoryExperimentParts",

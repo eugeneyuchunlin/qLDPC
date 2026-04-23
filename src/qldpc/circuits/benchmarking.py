@@ -27,7 +27,12 @@ import stim
 from qldpc import codes, decoders, math
 
 from .bookkeeping import DetectorRecord
-from .common import get_encoder_and_decoder, get_pauli_product_measurements, restrict_to_qubits
+from .common import (
+    get_encoder_and_decoder,
+    get_pauli_product_measurements,
+    restrict_tableau,
+    restrict_to_qubits,
+)
 from .noise_model import DepolarizingNoiseModel, NoiseModel, as_noiseless_circuit
 
 
@@ -102,7 +107,7 @@ def get_state_prep_diagnostic_circuit(
     # if none were provided, automatically find the logical Pauli stabilizers of the prepared state
     if observables is None:
         observables = get_nontrivial_logical_stabilizers(
-            code, state_prep_circuit, skip_validation=True
+            code, state_prep_circuit, skip_validation=skip_validation
         )
 
     # if applicable, convert Pauli strings into symplectic vectors
@@ -361,18 +366,12 @@ def get_nontrivial_logical_stabilizers(
         ignore_noise=True, ignore_measurement=True, ignore_reset=True
     )
 
-    # TODO: assert that the tableau does not prepare a logical state that is entangled with ancillas
+    if not skip_validation:
+        # TODO: assert that the tableau does not prepare a logical state that is entangled with ancillas
+        ...
 
     # remove ancilla qubits from the tableau
-    x2x, x2z, z2x, z2z, x_signs, z_signs = full_tableau.to_numpy()
-    tableau = stim.Tableau.from_numpy(
-        x2x=x2x[: len(code), : len(code)],
-        x2z=x2z[: len(code), : len(code)],
-        z2x=z2x[: len(code), : len(code)],
-        z2z=z2z[: len(code), : len(code)],
-        x_signs=x_signs[: len(code)],
-        z_signs=z_signs[: len(code)],
-    )
+    tableau = restrict_tableau(full_tableau, range(len(code)))
 
     # identify logical stabilizers of the code, in the logical Pauli basis
     logical_stabilizers = []
