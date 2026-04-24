@@ -1184,7 +1184,10 @@ class RingArray(npt.NDArray[np.object_]):
         return RingArray.from_field_array(self.ring, field_array)
 
     def _row_reduce_semisimple(self) -> RingArray:
-        """Perform row reduction based on the Wedderburn-Artin decomposition of the base ring."""
+        """Row-reduce a RingArray over a semisimple ring.  Currently not implemented.
+
+        We may seek to use the Wedderburn-Artin decomposition of semisimple rings.
+        """
         assert self.ndim == 2
         assert self.ring.is_semisimple
         raise NotImplementedError(
@@ -1192,11 +1195,12 @@ class RingArray(npt.NDArray[np.object_]):
         )
 
     def _row_reduce_general(self) -> RingArray:
-        """Compute a reduced Groebner basis for the row module of this RingArray."""
+        """Row-reduce a general RingArray.  Currently not implemented.
+
+        We may seek to find a reduced Groebner basis.
+        """
         assert self.ndim == 2
-        raise NotImplementedError(
-            "We need to compute a reduced Groebner basis, in full generality.  Here be dragons."
-        )
+        raise NotImplementedError("We need to row-reduce a general RingArray.  Here be dragons.")
 
     def without_dependent_rows(self) -> RingArray:
         r"""Remove rows that can be expressed as left-ring-linear combinations of others.
