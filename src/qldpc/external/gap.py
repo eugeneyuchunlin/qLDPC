@@ -66,7 +66,7 @@ def sanitize_commands(commands: Sequence[str]) -> tuple[str, ...]:
     return tuple(prefix + commands + suffix)
 
 
-def get_output(*commands: str) -> str:
+def get_output(*commands: str, use_pipe: bool = False) -> str:
     """Get the output from the given GAP commands."""
     if not is_installed():
         raise FileNotFoundError("GAP 4 is required to proceed, but is not installed")
@@ -79,10 +79,19 @@ def get_output(*commands: str) -> str:
             f";{GAP_ROOT}",
             "-q",
             "--quitonbreak",
-            "-c",
-            " ".join(commands),
         ]
-        result = subprocess.run(shell_commands, capture_output=True, text=True)
+        script_input = " ".join(commands)
+        if not use_pipe:
+            shell_commands.extend(["-c", script_input])
+            pipe_input = None
+        else:
+            pipe_input = script_input
+        result = subprocess.run(
+            shell_commands,
+            input=pipe_input,
+            capture_output=True,
+            text=True,
+        )
         if result.stderr:
             raise ValueError(
                 f"Error encountered when running GAP:\n{result.stderr}\n\n"
