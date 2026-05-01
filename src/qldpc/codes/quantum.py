@@ -1267,7 +1267,7 @@ class SHPCode(CSSCode):
         """Canonical logical operators for the subsystem hypergraph product code.
 
         These operators are essentially those in Theorem VIII.10 of arXiv:2502.07150v1, generalized
-        slightly to account for the possibility that code_x != code_z.
+        slightly to account for the possibility that code_a != code_b.
         """
         field = type(matrix_a)
 
