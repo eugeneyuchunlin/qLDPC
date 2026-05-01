@@ -1271,16 +1271,16 @@ class SHPCode(CSSCode):
         """
         field = type(matrix_a)
 
-        generator_x = matrix_a.null_space()
-        generator_z = matrix_b.null_space()
+        generator_a = matrix_a.null_space()
+        generator_b = matrix_b.null_space()
 
-        pivots_x = field.Zeros(generator_x.shape)
-        pivots_z = field.Zeros(generator_z.shape)
-        pivots_x[range(len(pivots_x)), qldpc.math.first_nonzero_cols(generator_x)] = 1
-        pivots_z[range(len(pivots_z)), qldpc.math.first_nonzero_cols(generator_z)] = 1
+        pivots_a = field.Zeros(generator_a.shape)
+        pivots_b = field.Zeros(generator_b.shape)
+        pivots_a[range(len(pivots_a)), qldpc.math.first_nonzero_cols(generator_a)] = 1
+        pivots_b[range(len(pivots_b)), qldpc.math.first_nonzero_cols(generator_b)] = 1
 
-        logical_ops_x = np.kron(pivots_x, generator_z)
-        logical_ops_z = np.kron(generator_x, pivots_z)
+        logical_ops_x = np.kron(pivots_a, generator_b)
+        logical_ops_z = np.kron(generator_a, pivots_b)
         return logical_ops_x.view(field), logical_ops_z.view(field)
 
     def _get_distance_exact(self, pauli: PauliXZ | None) -> int | float:
