@@ -17,8 +17,10 @@ limitations under the License.
 
 from __future__ import annotations
 
+import itertools
 import unittest.mock
 
+import galois
 import numpy as np
 import pytest
 import sympy
@@ -296,3 +298,104 @@ def test_deprecations() -> None:
     with pytest.warns(DeprecationWarning, match="DEPRECATED"):
         ring_array = abstract.RingArray.from_field_array(ring, matrix)  # type:ignore[arg-type]
         assert np.array_equal(ring_array.to_field_array(), matrix)
+
+
+@pytest.mark.parametrize(
+    "ring",
+    [
+        abstract.GroupRing(abstract.CyclicGroup(3), 2),
+        abstract.GroupRing(abstract.CyclicGroup(4), 5),
+    ],
+)
+def test_wedderburn_artin_transformations(
+    ring: abstract.GroupRing, pytestconfig: pytest.Config
+) -> None:
+    """Decompose semisimple rings into simple components."""
+    seed = pytestconfig.getoption("randomly_seed")
+
+    with unittest.mock.patch.object(
+        abstract.GroupRing,
+        "get_primitive_central_idempotents",
+        return_value=_get_primitive_central_idempotents(ring),
+    ):
+        transformer = abstract.WedderburnArtinTransformer(ring, seed=seed)
+
+    # the embedding of ring.field = GF(q) scalars is a homomorphism
+    for component_transformer in transformer.transformers:
+        for aa, bb in itertools.product(ring.field.elements, repeat=2):
+            proj_a = component_transformer.embedded_scalars[aa]
+            proj_b = component_transformer.embedded_scalars[bb]
+            proj_a_b = component_transformer.embedded_scalars[aa * bb]
+            assert proj_a * proj_b == proj_a_b
+
+    # the embedding of ring members is a homomorphism
+    coeffs_a = ring.field.Random(ring.group.order, seed=seed + 1)
+    coeffs_b = ring.field.Random(ring.group.order, seed=seed + 2)
+    terms_a = [(coeff, gen) for coeff, gen in zip(coeffs_a, ring.group.generate())]
+    terms_b = [(coeff, gen) for coeff, gen in zip(coeffs_b, ring.group.generate())]
+    member_a = abstract.RingMember(ring, *terms_a)
+    member_b = abstract.RingMember(ring, *terms_b)
+    separate = [
+        component_transformer.project(member_a) * component_transformer.project(member_b)
+        for component_transformer in transformer.transformers
+    ]
+    assert separate == transformer.decompose(member_a * member_b)
+
+    # the Wedderburn-Artin decomposition is invertible
+    assert member_a == transformer.recompose(transformer.decompose(member_a))
+    assert member_b == transformer.recompose(transformer.decompose(member_b))
+
+
+def test_wedderburn_artin_errors() -> None:
+    """The Wedderburn-Artin decomposition has limitations."""
+    group: abstract.Group
+
+    group = abstract.CyclicGroup(3)
+    ring = abstract.GroupRing(group, 2)
+
+    with unittest.mock.patch.object(
+        abstract.GroupRing,
+        "get_primitive_central_idempotents",
+        return_value=_get_primitive_central_idempotents(ring),
+    ):
+        transformer = abstract.WedderburnArtinTransformer(ring, seed=0)
+
+    with pytest.raises(ValueError, match="different ring"):
+        different_ring = abstract.GroupRing(group, 4)
+        transformer.decompose(different_ring.one)
+
+    with pytest.raises(ValueError, match="Incorrect number of components"):
+        transformer.recompose([])
+
+    with pytest.raises(ValueError, match="Invalid field"):
+        transformer.recompose(galois.GF(3).Ones(2))
+
+    ring = abstract.GroupRing(abstract.CyclicGroup(2), 2)
+    with pytest.raises(ValueError, match="only exists for semisimple rings"):
+        abstract.WedderburnArtinTransformer(ring)
+    with pytest.raises(ValueError, match="only exists for semisimple rings"):
+        abstract.WedderburnArtinComponentTransformer(ring.one)
+
+    ring = abstract.GroupRing(abstract.DihedralGroup(3), 5)
+    with (
+        unittest.mock.patch.object(
+            abstract.GroupRing, "get_primitive_central_idempotents", return_value=[ring.one]
+        ),
+        pytest.raises(NotImplementedError, match="does not yet support non-Abelian rings"),
+    ):
+        abstract.WedderburnArtinTransformer(ring)
+
+
+def _get_primitive_central_idempotents(ring: abstract.GroupRing) -> tuple[abstract.RingMember, ...]:
+    """Intercept abstract.GroupRing.get_primitive_central_idempotents for testing purposes."""
+    x = ring.generators[0]
+    if ring == abstract.GroupRing(abstract.CyclicGroup(3), 2):
+        return x**2 + x + 1, x**2 + x
+    if ring == abstract.GroupRing(abstract.CyclicGroup(4), 5):
+        return (
+            4 * x**3 + 4 * x**2 + 4 * x + 4,
+            x**3 + 4 * x**2 + x + 4,
+            2 * x**3 + x**2 + 3 * x + 4,
+            3 * x**3 + x**2 + 2 * x + 4,
+        )
+    return NotImplemented  # pragma: no cover
