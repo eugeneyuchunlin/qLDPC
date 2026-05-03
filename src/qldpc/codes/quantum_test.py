@@ -474,6 +474,8 @@ def test_lifted_product_line_logicals(
     pytestconfig: pytest.Config, rows: int = 3, cols: int = 2
 ) -> None:
     """Canonical line operators of lifted product codes."""
+    code: codes.CSSCode
+
     seed = pytestconfig.getoption("randomly_seed")
     sympy.core.random.seed(seed)
 
