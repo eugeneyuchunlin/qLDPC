@@ -1066,34 +1066,34 @@ class WedderburnArtinComponentTransformer:
     def _get_basis_in_ring_and_field(
         self, seed: np.random.Generator | int | None
     ) -> tuple[RingArray, galois.FieldArray]:
-        r"""Construct a basis for a simple component C of a semisimple ring R.
+        r"""Construct a basis for a simple component S of a semisimple ring R.
 
-        Let e denote the primitive central idempotent (PCI) that projects onto C, and d = rank(e).
+        Let e denote the primitive central idempotent (PCI) that projects onto S, and d = rank(e).
 
-        If R is a finite Abelian group algebra, then C is isomorphic to a field extension of the
+        If R is a finite Abelian group algebra, then S is isomorphic to a field extension of the
         base field GF(q) of R.  Mathematically,
-            C ≅ GF(q^d) ≅ GF(q)[x] / f(x),
+            S ≅ GF(q^d) ≅ GF(q)[x] / f(x),
         where
         - GF(q)[x] denotes the set of univariate polynomials with coefficients in GF(q), and
-        - f(x) ∈ GF(q)[x] is any irreducible polynomial with degree d.
+        - f(x) ∈ GF(q)[x] is an irreducible polynomial with degree d.
 
         Below, we construct a power basis for the space of polynomials over GF(q) with degree < d,
             B = (b^0, b^1, b^2, ..., b^{d-1}),
         where
         - b ∈ C is called the generator of this power basis, and
-        - b^0 is defined to be the multiplicative identity in C; that is, b^0 = e.
+        - b^0 is defined to be the multiplicative identity in S; that is, b^0 = e.
 
         The main requirement for B is that its elements are linearly independent over GF(q).
         To find a suitable basis, we...
         1. Pick a random element r of R.
-        2. Multiply this element by e to project onto C.
+        2. Multiply this element by e to project onto S.
         3. Check whether powers of the (r * e) span a GF(q)-linear vector space of sufficient
             dimension (namely, d).  If so, we set b = r * e.  Otherwise, we go back to step 1.
 
         Returns:
-            - The basis B as a 1-dimensional RingArray.
-            - The basis B as a matrix whose j-th row is b^j lifted to a matrix and flattened to a
-                vector.
+            - A 1-dimensional RingArray of elements (b^0, b^1, b^2, ..., b^{d-1}) ∈ R.
+            - A 2-dimensional galois.FieldArray whose j-th row is b^j lifted to a matrix and
+                flattened to a vector.
         """
         if self.dimension == 1:
             return RingArray([self.pci]), self.lifted_pci.reshape(1, -1).view(self.field)
@@ -1121,7 +1121,7 @@ class WedderburnArtinComponentTransformer:
         return RingArray(basis_in_ring), basis_in_field.view(self.field)
 
     def _get_embeddings(self) -> tuple[galois.FieldArray, galois.FieldArray]:
-        r"""Construct embeddings of elements of C into the extended field GF(q^d) ≅ GF(p^{kd}).
+        r"""Construct embeddings of elements of S into the extended field GF(q^d) ≅ GF(p^{kd}).
 
         There are two parts to this embedding:
         1. Embedding GF(q) scalars into GF(p^{kd}).
@@ -1172,10 +1172,10 @@ class WedderburnArtinComponentTransformer:
             1. Idenfity polynomial f(x) for which GF(q^d) = GF(q)[x] / f(x) with f(b) = 0.
             2. Map the GF(q) coefficients of f(x) into GF(p^{kd}) to obtain a polynomial g(x).
             3. Use any root of g(x) as the generator of the embedded power basis.
-        To find f(x), we seek coefficients c_j ∈ GF(q) for which
-            f(b) = sum_{j=0}^d c_j b^j = 0.
-        We can set c_d = 1 withous loss of generality, reducing the problem to
-            sum_{j=0}^{d-1} c_j b^j = -b^d.
+        To find f(x), we seek coefficients f_j ∈ GF(q) for which
+            f(b) = sum_{j=0}^d f_j b^j = 0.
+        We can set f_d = 1 withous loss of generality, reducing the problem to
+            sum_{j=0}^{d-1} f_j b^j = -b^d.
         The remaining coefficients can be found by solving a linear system of equations.
         """
         lifted_gen = self.basis_in_field[1].reshape([self.ring.group.order] * 2)
@@ -1201,7 +1201,7 @@ class WedderburnArtinComponentTransformer:
             A = (a^0, a^1, a^2, ..., a^{d-1})
         satisfies
             Tr_{GF(q^d)/GF(q)}[a_i b^i] = delta_{ij},
-        where Tr_{GF(q^d)/GF(q)} denotes a field trace from GF(q^d) to GF(q); see self._field_trace.
+        where Tr_{GF(q^d)/GF(q)} denotes a field trace from GF(q^d) to GF(q); see self.field_trace.
 
         The dual basis allows us to "pick off" the coefficients of a polynomial in GF(q)[x] / f(x),
         which is useful for embedding elements of GF(p^{kd}) ≅ GF(q^d) back into the ring R by:
@@ -1213,13 +1213,13 @@ class WedderburnArtinComponentTransformer:
             return self.extended_field.Ones([1])
         matrix = self.extended_field(
             [
-                self._field_trace(aa * bb)
+                self.field_trace(aa * bb)
                 for aa, bb in itertools.product(self.embedded_basis, repeat=2)
             ]
         ).reshape([self.dimension] * 2)
         return np.linalg.inv(matrix) @ self.embedded_basis
 
-    def _field_trace(self, value: galois.FieldArray) -> galois.FieldArray:
+    def field_trace(self, value: galois.FieldArray) -> galois.FieldArray:
         """Compute the field trace from the extended field R_i into the base field of R.
 
         The field trace of z from GF(q^d) to GF(q) is defined by
@@ -1254,7 +1254,7 @@ class WedderburnArtinComponentTransformer:
         if self.dimension == 1:
             return self.basis_in_ring[0] * element
         coefficients = [
-            np.argmax(self.embedded_scalars == self._field_trace(dual * element))
+            np.argmax(self.embedded_scalars == self.field_trace(dual * element))
             for dual in self.dual_basis
         ]
         terms = [vec * coeff for vec, coeff in zip(self.basis_in_ring, coefficients)]
