@@ -470,7 +470,9 @@ def test_subsystem_lifted_product_codes() -> None:
     assert np.sum(line_weights) < np.sum(weights)
 
 
-def test_lifted_product_logicals(pytestconfig: pytest.Config, rows: int = 3, cols: int = 2) -> None:
+def test_lifted_product_line_logicals(
+    pytestconfig: pytest.Config, rows: int = 3, cols: int = 2
+) -> None:
     """Canonical line operators of lifted product codes."""
     seed = pytestconfig.getoption("randomly_seed")
     sympy.core.random.seed(seed)
