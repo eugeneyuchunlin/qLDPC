@@ -271,14 +271,18 @@ def test_get_small_group_structure() -> None:
 
 def test_idempotents() -> None:
     """Find primitive central idempotents of a group algebra."""
+    # retrieve known PCIs
+    for (group, field_order), pcis in external.groups.KNOWN_PRIMITIVE_CENTRAL_IDEMPOTENTS.items():
+        assert external.groups.get_primitive_central_idempotents(group, field_order) == pcis
+
     z_2 = galois.GF(2).primitive_element
     z_2_2 = galois.GF(4).primitive_element
     field = galois.GF(4)
     fake_output = "[ (Z(2))*(), (Z(2^2)^2)*(1,2)+(Z(2)^0)*(3,4)(5,6) ]"
-    expected_idempotents = (
+    expected_idempotents = [
         ((int(field(z_2)), ((),)),),
         ((int(field(z_2_2**2)), ((0, 1),)), (int(field(z_2**0)), ((2, 3), (4, 5)))),
-    )
+    ]
     with (
         unittest.mock.patch("qldpc.external.gap.is_installed", return_value=True),
         unittest.mock.patch("qldpc.external.gap.require_package", return_value=None),

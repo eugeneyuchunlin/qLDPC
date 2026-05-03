@@ -938,7 +938,7 @@ class HGPCode(CSSCode):
         )
 
         if set_logicals:
-            logical_ops_xz = HGPCode.get_canonical_logical_ops(
+            logical_ops_xz = HGPCode.get_canonical_logical_line_ops(
                 self.code_a.matrix, self.code_b.matrix
             )
             self.set_logical_ops_xz(*logical_ops_xz, skip_validation=True)
@@ -1091,10 +1091,10 @@ class HGPCode(CSSCode):
         return node_map
 
     @staticmethod
-    def get_canonical_logical_ops(
+    def get_canonical_logical_line_ops(
         matrix_a: galois.FieldArray, matrix_b: galois.FieldArray
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
-        """Canonical logical operators for the hypergraph product code.
+        """Canonical logical line operators for a hypergraph product code.
 
         These operators are essentially those in Lemma 1 of arXiv:2204.10812v3, modified using pivot
         matrices similarly to Theorem VIII.10 of arXiv:2502.07150v1 to ensure pair-wise
@@ -1246,7 +1246,7 @@ class SHPCode(CSSCode):
         self._stabilizer_ops = scipy.linalg.block_diag(stab_ops_x, stab_ops_z).view(code_field)
 
         if set_logicals:
-            logical_ops_xz = SHPCode.get_canonical_logical_ops(
+            logical_ops_xz = SHPCode.get_canonical_logical_line_ops(
                 self.code_a.matrix, self.code_b.matrix
             )
             self.set_logical_ops_xz(*logical_ops_xz, skip_validation=True)
@@ -1261,10 +1261,10 @@ class SHPCode(CSSCode):
         return matrix_x, matrix_z
 
     @staticmethod
-    def get_canonical_logical_ops(
+    def get_canonical_logical_line_ops(
         matrix_a: galois.FieldArray, matrix_b: galois.FieldArray
     ) -> tuple[galois.FieldArray, galois.FieldArray]:
-        """Canonical logical operators for the subsystem hypergraph product code.
+        """Canonical logical line operators for a subsystem hypergraph product code.
 
         These operators are essentially those in Theorem VIII.10 of arXiv:2502.07150v1, generalized
         slightly to account for the possibility that code_a != code_b.
@@ -1353,6 +1353,8 @@ class LPCode(CSSCode):
         self,
         matrix_a: npt.NDArray[np.object_] | Sequence[Sequence[object]],
         matrix_b: npt.NDArray[np.object_] | Sequence[Sequence[object]] | None = None,
+        *,
+        set_logicals: bool = False,
     ) -> None:
         """Lifted product of two RingArrays, as in arXiv:2012.04068."""
         if matrix_b is None:
@@ -1376,6 +1378,93 @@ class LPCode(CSSCode):
         self.bias_tailoring_qubits = slice(self.sector_size[0, 0], None)
 
         super().__init__(matrix_x.lift(), matrix_z.lift(), field, is_subsystem_code=False)
+
+        if set_logicals:
+            try:
+                logical_ops_xz = self.get_canonical_logical_line_ops(self.matrix_a, self.matrix_b)
+                self.set_logical_ops_xz(*logical_ops_xz, skip_validation=False)
+            except (ValueError, NotImplementedError) as error:
+                message = (
+                    "Cannot set canonical logical operators for this code, likely due to a"
+                    " choice of group algebra for which some features are not yet supported"
+                )
+                error.args = (message,)
+                raise error
+
+    @staticmethod
+    def get_canonical_logical_line_ops(
+        matrix_a: abstract.RingArray, matrix_b: abstract.RingArray
+    ) -> tuple[galois.FieldArray, galois.FieldArray]:
+        """Canonical logical line operators for a subsystem lifted product code."""
+        logical_ops_xz = LPCode.get_canonical_ring_logical_line_ops(matrix_a, matrix_b)
+        return LPCode.to_lifted_logical_ops(*logical_ops_xz)
+
+    @staticmethod
+    def get_canonical_ring_logical_line_ops(
+        matrix_a: abstract.RingArray, matrix_b: abstract.RingArray
+    ) -> tuple[abstract.RingArray, abstract.RingArray]:
+        """Canonical ring-logical line operators for a lifted product code.
+
+        Generalizes HGPCode.get_canonical_logical_line_ops.
+        """
+        ring = matrix_a.ring
+
+        generator_a = matrix_a.null_space().howell_normal_form()
+        generator_b = matrix_b.null_space().howell_normal_form()
+        generator_a_T = matrix_a.T.null_space().howell_normal_form()
+        generator_b_T = matrix_b.T.null_space().howell_normal_form()
+
+        def _get_pivot_matrix(matrix: abstract.RingArray) -> abstract.RingArray:
+            """Build a new matrix zeros out a row-reduced matrix everywhere except the pivots."""
+            new_matrix = np.zeros(matrix.shape, dtype=object)
+            for rr, row in enumerate(matrix):
+                pivot_col = np.argmax(row.view(np.ndarray).astype(bool))
+                new_matrix[rr, pivot_col] = matrix[rr, pivot_col].copy()
+            return abstract.RingArray.build(new_matrix, ring)
+
+        pivots_a = _get_pivot_matrix(generator_a)
+        pivots_b = _get_pivot_matrix(generator_b)
+        pivots_a_T = _get_pivot_matrix(generator_a_T)
+        pivots_b_T = _get_pivot_matrix(generator_b_T)
+
+        logical_ops_x_l = np.kron(pivots_a, generator_b)
+        logical_ops_z_l = np.kron(generator_a, pivots_b)
+        logical_ops_x_r = np.kron(generator_a_T, pivots_b_T)
+        logical_ops_z_r = np.kron(pivots_a_T, generator_b_T)
+
+        logical_ops_x = scipy.linalg.block_diag(logical_ops_x_l, logical_ops_x_r)
+        logical_ops_z = scipy.linalg.block_diag(logical_ops_z_l, logical_ops_z_r)
+        return (
+            abstract.RingArray.build(logical_ops_x, ring),
+            abstract.RingArray.build(logical_ops_z, ring),
+        )
+
+    @staticmethod
+    def to_lifted_logical_ops(
+        logical_ops_x: abstract.RingArray, logical_ops_z: abstract.RingArray
+    ) -> tuple[galois.FieldArray, galois.FieldArray]:
+        """Lift logical operators over a ring to logical operators over the base field."""
+        ring = logical_ops_x.ring
+        num_columns = logical_ops_x.shape[1]
+        block_length = num_columns * ring.group.order
+
+        lifted_ops_x = ring.field.Zeros((0, block_length))
+        lifted_ops_z = ring.field.Zeros((0, block_length))
+        for row, (op_x, op_z) in enumerate(zip(logical_ops_x, logical_ops_z)):
+            inner_product = op_x @ op_z.T
+            if inner_product == ring.one:
+                ops_x = op_x.regular_lift()
+                ops_z = op_z.regular_lift()
+            else:
+                inner_product_lift = inner_product.lift()
+                sector_rank = np.linalg.matrix_rank(inner_product_lift)
+                basis_change = np.linalg.inv(inner_product_lift[:sector_rank, :sector_rank]).T
+                ops_x = op_x.regular_lift()[:sector_rank]
+                ops_z = basis_change @ op_z.regular_lift()[:sector_rank]
+            lifted_ops_x = np.vstack([lifted_ops_x, ops_x])
+            lifted_ops_z = np.vstack([lifted_ops_z, ops_z])
+
+        return lifted_ops_x, lifted_ops_z
 
 
 class SLPCode(CSSCode):
@@ -1416,6 +1505,8 @@ class SLPCode(CSSCode):
         self,
         matrix_a: npt.NDArray[np.object_] | Sequence[Sequence[object]],
         matrix_b: npt.NDArray[np.object_] | Sequence[Sequence[object]] | None = None,
+        *,
+        set_logicals: bool = False,
     ) -> None:
         """Subsystem lifted product of two RingArrays."""
         if matrix_b is None:
@@ -1430,6 +1521,63 @@ class SLPCode(CSSCode):
         assert isinstance(matrix_z, abstract.RingArray)
 
         super().__init__(matrix_x.lift(), matrix_z.lift(), field, is_subsystem_code=True)
+
+        if set_logicals:
+            try:
+                logical_ops_xz = self.get_canonical_logical_line_ops(self.matrix_a, self.matrix_b)
+                self.set_logical_ops_xz(*logical_ops_xz, skip_validation=False)
+            except (ValueError, NotImplementedError) as error:
+                message = (
+                    "Cannot set canonical logical operators for this code, likely due to a"
+                    " choice of group algebra for which some features are not yet supported"
+                )
+                error.args = (message,)
+                raise error
+
+    @staticmethod
+    def get_canonical_logical_line_ops(
+        matrix_a: abstract.RingArray, matrix_b: abstract.RingArray
+    ) -> tuple[galois.FieldArray, galois.FieldArray]:
+        """Canonical logical line operators for a subsystem lifted product code."""
+        logical_ops_xz = SLPCode.get_canonical_ring_logical_line_ops(matrix_a, matrix_b)
+        return SLPCode.to_lifted_logical_ops(*logical_ops_xz)
+
+    @staticmethod
+    def get_canonical_ring_logical_line_ops(
+        matrix_a: abstract.RingArray, matrix_b: abstract.RingArray
+    ) -> tuple[abstract.RingArray, abstract.RingArray]:
+        """Canonical ring-logical line operators for a subsystem lifted product code.
+
+        Generalizes SHPCode.get_canonical_logical_line_ops.
+        """
+        ring = matrix_a.ring
+
+        generator_a = matrix_a.null_space().howell_normal_form()
+        generator_b = matrix_b.null_space().howell_normal_form()
+
+        def _get_pivot_matrix(matrix: abstract.RingArray) -> abstract.RingArray:
+            """Build a new matrix zeros out a row-reduced matrix everywhere except the pivots."""
+            new_matrix = np.zeros(matrix.shape, dtype=object)
+            for rr, row in enumerate(matrix):
+                pivot_col = np.argmax(row.view(np.ndarray).astype(bool))
+                new_matrix[rr, pivot_col] = matrix[rr, pivot_col].copy()
+            return abstract.RingArray.build(new_matrix, ring)
+
+        pivots_a = _get_pivot_matrix(generator_a)
+        pivots_b = _get_pivot_matrix(generator_b)
+        logical_ops_x = np.kron(pivots_a, generator_b)
+        logical_ops_z = np.kron(generator_a, pivots_b)
+        return (
+            abstract.RingArray.build(logical_ops_x, ring),
+            abstract.RingArray.build(logical_ops_z, ring),
+        )
+
+    @staticmethod
+    def to_lifted_logical_ops(
+        logical_ops_x: abstract.RingArray, logical_ops_z: abstract.RingArray
+    ) -> tuple[galois.FieldArray, galois.FieldArray]:
+        """Lift logical operators over a ring to logical operators over the base field."""
+        return LPCode.to_lifted_logical_ops(logical_ops_x, logical_ops_z)
 
 
 ####################################################################################################
