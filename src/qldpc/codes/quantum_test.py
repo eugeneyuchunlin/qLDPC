@@ -470,8 +470,28 @@ def test_subsystem_lifted_product_codes() -> None:
     assert np.sum(line_weights) < np.sum(weights)
 
 
-def test_lifted_product_logical_errors(rows: int = 3, cols: int = 2) -> None:
-    """Not all lifted product codes support canonical line operators."""
+def test_lifted_product_logicals(pytestconfig: pytest.Config, rows: int = 3, cols: int = 2) -> None:
+    """Canonical line operators of lifted product codes."""
+    seed = pytestconfig.getoption("randomly_seed")
+    sympy.core.random.seed(seed)
+
+    group = abstract.CyclicGroup(3)
+    ring = abstract.GroupRing(group, field=2)
+    values = [[group.random() for _ in range(cols)] for _ in range(rows)]
+    matrix = abstract.RingArray.build(values, ring)
+    code = codes.LPCode(matrix, set_logicals=True)
+    assert np.array_equal(
+        code.get_logical_ops(Pauli.X) @ code.get_logical_ops(Pauli.Z).T,
+        np.eye(code.dimension),
+    )
+
+    code = codes.SLPCode(matrix, set_logicals=True)
+    assert np.array_equal(
+        code.get_logical_ops(Pauli.X) @ code.get_logical_ops(Pauli.Z).T,
+        np.eye(code.dimension),
+    )
+
+    # not all lifted product codes support canonical line operators.
     group = abstract.CyclicGroup(2)
     ring = abstract.GroupRing(group, field=2)
     values = [[group.random() for _ in range(cols)] for _ in range(rows)]
