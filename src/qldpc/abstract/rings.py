@@ -1110,7 +1110,7 @@ class WedderburnArtinComponentTransformer:
     def _get_center(self) -> galois.FieldArray:
         r"""Identify a basis for the center Z(S) of S.
 
-        The center Z(S) is the subspace of S that commutes with all elements of S:
+        The center Z(S) is the subspace of "scalars" in S that commute with all elements of S:
             Z(S) = { z ∈ S : z·s = s·z for all s ∈ S }.
 
         We can decompose Z(S) = S ⋂ Z(R), where Z(R) is the center of R.  Letting L(r) and A(r)
@@ -1144,21 +1144,23 @@ class WedderburnArtinComponentTransformer:
         Mathematically,
             GF(q^d) ≅ GF(q)[x] / f(x),
         where
-        - GF(q)[x] denotes the set of univariate polynomials with coefficients in GF(q), and
-        - f(x) ∈ GF(q)[x] is an irreducible polynomial with degree d.
+        - GF(q)[x] is the set of univariate polynomials with coefficients in GF(q).
+        - f(x) ∈ GF(q)[x] is an irreducible polynomial with degree d.  Here "irreducible"
+            essentially means "prime": f(x) has no nontrivial factors of degree <= d.
+        The monomial x is called the primitive element of GF(q)[x] / f(x), and its powers,
+            (x^0, x^1, x^2, ..., x^{d-1}),
+        form a "power basis" for GF(q)[x] / f(x).
 
-        Below, we construct a power basis for the space of polynomials over GF(q) with degree < d,
+        We need to find elements of S that act as GF(q^d) scalars when mapping into GF(q^d)^{n × n}.
+        To this end, we identify a suitable element b of Z(S) (the subspace of scalars in S) that
+        can serve as the primitive element of a field extension GF(q)[x] / f(x).  Crucially, the
+        powers of this primitive element, collected into the power basis
             B = (b^0, b^1, b^2, ..., b^{d-1}),
-        where
-            - b is called the generator of this power basis, and
-            - we define b^0 = e.
-        The main requirements for B are:
-            1. The generator b must be a scalar in S = GF(q^d)^{n × n}, so b ∈ Z(S).
-            2. The elements of B are linearly independent over GF(q).
+        must be linearly independent.  Here b^0 = e is the identity element of S.
 
         To find a suitable power basis B, we...
             1. Pick a random element b ∈ Z(S).
-            2. Construct the matrix B = (b^0, b^1, b^2, ..., b^{d-1}).
+            2. Collect powers of b into rows of the matrix B = (b^0, b^1, b^2, ..., b^{d-1}).
             3. Check whether the elements of B span GF(q)-linear vector space of dimension d.
                 If so, return B.  Otherwise, go back to step 1.
 
