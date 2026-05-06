@@ -18,7 +18,6 @@ limitations under the License.
 from __future__ import annotations
 
 import itertools
-import unittest.mock
 
 import galois
 import numpy as np
@@ -43,6 +42,7 @@ def test_ring() -> None:
     assert np.array_equal(zero.lift(), np.array(0, ndmin=2))
     assert np.array_equal(one.lift(), np.array(1, ndmin=2))
     assert "GF(3)" in str(ring)
+    assert ring.is_commutative
     assert ring.is_abelian
     assert ring.is_semisimple
 
@@ -243,9 +243,9 @@ def test_ring_row_reduction(pytestconfig: pytest.Config) -> None:
     with pytest.raises(ValueError, match="requires an underlying CyclicGroup"):
         abstract.RingArray.build([[1, 0], [1, 1]], ring).howell_normal_form(poly=True)
 
-    # row-reduction for semisimple non-abelian groups is not yet supported
+    # row-reduction for semisimple non-commutative rings is not yet supported
     ring = abstract.GroupRing(abstract.DihedralGroup(3), field=5)
-    with pytest.raises(NotImplementedError, match="not yet support non-abelian rings"):
+    with pytest.raises(NotImplementedError, match="not yet support non-commutative rings"):
         abstract.RingArray.build([[1, 0], [1, 1]], ring).howell_normal_form()
 
     # computing a reduced Groebner basis is the final boss
@@ -366,10 +366,5 @@ def test_wedderburn_artin_errors() -> None:
         abstract.WedderburnArtinComponentTransformer(ring.one)
 
     ring = abstract.GroupRing(abstract.DihedralGroup(3), field=5)
-    with (
-        unittest.mock.patch.object(
-            abstract.GroupRing, "get_primitive_central_idempotents", return_value=[ring.one]
-        ),
-        pytest.raises(NotImplementedError, match="does not yet support non-abelian rings"),
-    ):
+    with pytest.raises(NotImplementedError, match="does not yet support non-commutative rings"):
         ring.get_transformer()
