@@ -1151,8 +1151,9 @@ class WedderburnArtinComponentTransformer:
         The center Z(S) is the subspace of "scalars" in S that commute with all elements of S:
             Z(S) = { z ∈ S : z·s = s·z for all s ∈ S }.
 
-        We can decompose Z(S) = S ⋂ Z(R), where Z(R) is the center of R.  Letting L(r) and A(r)
-        denote, respectively, the regular and adjoint representations of r ∈ R, we then note that
+        We can decompose Z(S) = S ⋂ Z(R), where Z(R) is the center of R.  Letting L(r) and A(g)
+        denote, respectively, the regular and adjoint representations of r ∈ R and g ∈ G, we then
+        note that
             S ≅ ker(L(e) - 1)
         and
             Z(R) ≅ ⋂_{generators g of G} ker(A(g) - 1).
