@@ -3239,7 +3239,7 @@ OneOrManyFloats = TypeVar("OneOrManyFloats", float, Iterable[float])
 
 @dataclasses.dataclass
 class ErrorRateFunc:
-    """Container computing logical error and discard rates from importance-sampled simulation data.
+    """Container for raw simulation data used to compute logical error and discard rates.
 
     An instance of this class is built and returned by the .get_logical_error_rate_func method of
     ClassicalCode, QuditCode, and CSSCode.  If
@@ -3253,7 +3253,7 @@ class ErrorRateFunc:
     error rate.
     """
 
-    # number of times we simulated each error weight
+    # number of times we sampled each error weight
     num_samples: npt.NDArray[np.int_]
 
     # number of failures and discards by error weight
