@@ -1383,12 +1383,11 @@ class LPCode(CSSCode):
             try:
                 logical_ops_xz = self.get_canonical_logical_line_ops(self.matrix_a, self.matrix_b)
                 self.set_logical_ops_xz(*logical_ops_xz, skip_validation=False)
-            except (ValueError, NotImplementedError) as error:
-                print(
+            except (ValueError, NotImplementedError):
+                raise ValueError(
                     "Cannot set canonical logical operators for this code, likely due to a"
                     " choice of group algebra for which some features are not yet supported"
                 )
-                raise error
 
     @staticmethod
     def get_canonical_logical_line_ops(
@@ -1525,12 +1524,11 @@ class SLPCode(CSSCode):
             try:
                 logical_ops_xz = self.get_canonical_logical_line_ops(self.matrix_a, self.matrix_b)
                 self.set_logical_ops_xz(*logical_ops_xz, skip_validation=False)
-            except (ValueError, NotImplementedError) as error:
-                print(
+            except (ValueError, NotImplementedError):
+                raise ValueError(
                     "Cannot set canonical logical operators for this code, likely due to a"
-                    " choice of group algebra for which some features are not yet supported"
+                    " choice of group algebra for which some features are not yet supported",
                 )
-                raise error
 
     @staticmethod
     def get_canonical_logical_line_ops(
