@@ -89,6 +89,8 @@ class SinterDecoder(Decoder, sinter.Decoder):
         """
         dem_arrays = DetectorErrorModelArrays(dem, simplify=simplify)
         decoder = self.get_configured_decoder(dem_arrays)
+        if getattr(decoder, "has_erasure_bit", False):
+            dem_arrays = dem_arrays.with_erasure()
         return CompiledSinterDecoder(dem_arrays, decoder)
 
     def get_configured_decoder(self, dem_arrays: DetectorErrorModelArrays) -> Decoder:
@@ -290,9 +292,9 @@ class SubgraphDecoder(SinterDecoder):
                 f" number of observable sets ({num_observable_sets})"
             )
 
-        self.subgraph_detectors = list(map(list, subgraph_detectors))
+        self.subgraph_detectors = [sorted(dets) for dets in subgraph_detectors]
         self.subgraph_observables = (
-            None if subgraph_observables is None else list(map(list, subgraph_observables))
+            None if subgraph_observables is None else [sorted(obs) for obs in subgraph_observables]
         )
 
         SinterDecoder.__init__(
@@ -311,14 +313,17 @@ class SubgraphDecoder(SinterDecoder):
         """
         dem_arrays = DetectorErrorModelArrays(dem, simplify=simplify)
         subgraph_observables = (
-            [slice(None)] * self.num_subgraphs
+            [list(range(dem.num_observables)) for _ in range(self.num_subgraphs)]
             if self.subgraph_observables is None
-            else self.subgraph_observables
+            else [list(obs) for obs in self.subgraph_observables]
         )
+        num_observables = dem.num_observables
 
         # build a decoder for each subgraph
         subgraph_decoders = []
-        for detectors, observables in zip(self.subgraph_detectors, subgraph_observables):
+        for ss, (detectors, observables) in enumerate(
+            zip(self.subgraph_detectors, subgraph_observables)
+        ):
             # identify the error mechanisms that flip these detectors
             errors = dem_arrays.detector_flip_matrix[detectors].getnnz(axis=0) != 0
 
@@ -333,12 +338,16 @@ class SubgraphDecoder(SinterDecoder):
             subgraph_decoder = SinterDecoder.compile_decoder_for_dem(self, subgraph_dem)
             subgraph_decoders.append(subgraph_decoder)
 
+            if getattr(subgraph_decoder.decoder, "has_erasure_bit", False):
+                subgraph_observables[ss].append(num_observables)
+                num_observables += 1
+
         return CompiledSubgraphDecoder(
             self.subgraph_detectors,
             subgraph_observables,
             subgraph_decoders,
             dem.num_detectors,
-            dem.num_observables,
+            num_observables,
         )
 
 
@@ -497,6 +506,11 @@ class SequentialWindowDecoder(SinterDecoder):
                 dem_arrays.error_probs[d_errors],
             )
             window_decoder = self.get_configured_decoder(window_dem_arrays)
+            if getattr(window_decoder, "has_erasure_bit", False):
+                raise NotImplementedError(
+                    f"{type(self)} does not yet support erasure decoding.\nIf you would like to see "
+                    "this feature, please file an issue at https://github.com/qLDPCOrg/qLDPC/issues"
+                )
 
             # identify errors in the commit region
             c_errors = dem_arrays.detector_flip_matrix[c_detectors].getnnz(axis=0) != 0
@@ -590,11 +604,12 @@ class CompiledSequentialWindowDecoder(CompiledSinterDecoder):
             ) % 2
 
             # decode this syndrome and update the net error appropriately
-            net_error[:, errors] = (
+            decoded_error = (
                 decoder.decode_batch(syndromes)
                 if hasattr(decoder, "decode_batch")
                 else np.array([decoder.decode(syndrome) for syndrome in syndromes])
-            )[:, error_locs]
+            )
+            net_error[:, errors] = decoded_error[:, error_locs]
 
         return net_error
 

@@ -223,6 +223,31 @@ class DetectorErrorModelArrays:
             self.error_probs[errors_to_keep],
         )
 
+    def with_erasure(self, bits: int = 1) -> DetectorErrorModelArrays:
+        """Construct the DetectorErrorModelArrays obtained by adding erasure bits to the DEM.
+
+        Each erasure bit is essentially a zero-probability error mechanism that flips no detectors,
+        but flips one newly added observable.  The erasure bit thereby allows decoders to indicate
+        erasure by flipping the erasure bit.
+        """
+        detector_flip_stack = [
+            self.detector_flip_matrix,
+            scipy.sparse.csc_matrix((self.num_detectors, bits)),
+        ]
+        detector_flip_matrix = scipy.sparse.hstack(detector_flip_stack, format="csc")
+
+        observable_flip_blocks = [
+            [self.observable_flip_matrix, None],
+            [None, scipy.sparse.eye(bits, dtype=int, format="csc")],
+        ]
+        observable_flip_matrix = scipy.sparse.bmat(observable_flip_blocks, format="csc")
+
+        return DetectorErrorModelArrays.from_arrays(
+            detector_flip_matrix,
+            observable_flip_matrix,
+            np.hstack([self.error_probs, [0] * bits]),
+        )
+
 
 def _values_that_occur_an_odd_number_of_times(items: Collection[int]) -> frozenset[int]:
     """Subset of items that occur an odd number of times."""

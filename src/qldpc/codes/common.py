@@ -725,12 +725,7 @@ class ClassicalCode(AbstractCode):
         return self.shortened(bits)
 
     def get_logical_error_rate_func(
-        self,
-        num_samples: int,
-        max_error_rate: float = 0.3,
-        *,
-        discard_weight: int | Collection[int] = (),
-        **decoder_kwargs: Any,
+        self, num_samples: int, max_error_rate: float = 0.3, **decoder_kwargs: Any
     ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
 
@@ -760,9 +755,6 @@ class ClassicalCode(AbstractCode):
             F(p) = q_0(p) + sum_(k>0) q_k(p) F_k.
         We thereby only need to sample errors of weight k > 0.
         """
-        if not isinstance(discard_weight, Collection):
-            discard_weight = [discard_weight]
-
         decoder = decoders.get_decoder(self.matrix, **decoder_kwargs)
 
         # sample errors of fixed weight and record failure/discard counts
@@ -772,7 +764,7 @@ class ClassicalCode(AbstractCode):
         for weight in range(1, len(sample_allocation)):
             num_failures[weight], num_discards[weight] = (
                 self._estimate_decoding_infidelity_and_variance(
-                    weight, sample_allocation[weight], decoder, discard_weight
+                    weight, sample_allocation[weight], decoder
                 )
             )
         return ErrorRateFunc(
@@ -780,11 +772,7 @@ class ClassicalCode(AbstractCode):
         )
 
     def _estimate_decoding_infidelity_and_variance(
-        self,
-        error_weight: int,
-        num_samples: int,
-        decoder: decoders.Decoder,
-        discard_weight: Collection[int],
+        self, error_weight: int, num_samples: int, decoder: decoders.Decoder
     ) -> tuple[int, int]:
         """Sample and correct errors of a fixed weight.  Return logical error and discard counts."""
         num_failures = 0
@@ -797,8 +785,8 @@ class ClassicalCode(AbstractCode):
 
             # decode the error
             syndrome = self.matrix @ error
-            decoded_error = decoder.decode(syndrome.view(np.ndarray)).view(self.field)
-            if discard_weight and np.count_nonzero(decoded_error) in discard_weight:
+            decoded_error, erasure = _get_error_and_erasure(decoder, syndrome)
+            if erasure:
                 num_discards += 1
             elif np.any(decoded_error - error):
                 num_failures += 1
@@ -1944,8 +1932,6 @@ class QuditCode(AbstractCode):
         num_samples: int,
         max_error_rate: float = 0.3,
         pauli_bias: Sequence[float] | None = None,
-        *,
-        discard_weight: int | Collection[int] = (),
         **decoder_kwargs: Any,
     ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
@@ -1966,9 +1952,6 @@ class QuditCode(AbstractCode):
         See help(qldpc.codes.ClassicalCode.get_logical_error_rate_func) for more details about how
         this method works.
         """
-        if not isinstance(discard_weight, Collection):
-            discard_weight = [discard_weight]
-
         # collect relative probabilities of Z, X, and Y errors
         pauli_bias_zxy: npt.NDArray[np.floating] | None
         if pauli_bias is not None:
@@ -1993,12 +1976,7 @@ class QuditCode(AbstractCode):
         for weight in range(1, len(sample_allocation)):
             num_failures[weight], num_discards[weight] = (
                 self._estimate_decoding_fidelity_and_variance(
-                    weight,
-                    sample_allocation[weight],
-                    decoder,
-                    logical_ops,
-                    pauli_bias_zxy,
-                    discard_weight,
+                    weight, sample_allocation[weight], decoder, logical_ops, pauli_bias_zxy
                 )
             )
         return ErrorRateFunc(
@@ -2012,7 +1990,6 @@ class QuditCode(AbstractCode):
         decoder: decoders.Decoder,
         logical_ops: npt.NDArray[np.int_],
         pauli_bias_zxy: npt.NDArray[np.floating] | None,
-        discard_weight: Collection[int],
     ) -> tuple[int, int]:
         """Sample and correct errors of a fixed weight.  Return logical error and discard counts."""
         num_failures = 0
@@ -2037,9 +2014,9 @@ class QuditCode(AbstractCode):
 
             error = np.concatenate([error_x, error_z]).view(self.field)
             syndrome = syndrome_matrix @ error
-            decoded_error = decoder.decode(syndrome.view(np.ndarray)).view(self.field)
-            if discard_weight and math.symplectic_weight(decoded_error) in discard_weight:
-                num_discards += 1  # pragma: no cover
+            decoded_error, erasure = _get_error_and_erasure(decoder, syndrome)
+            if erasure:
+                num_discards += 1
             elif np.any(logical_ops @ math.symplectic_conjugate(decoded_error - error)):
                 num_failures += 1
 
@@ -3028,7 +3005,6 @@ class CSSCode(QuditCode):
         *,
         decoder_x_kwargs: dict[str, Any] | None = None,
         decoder_z_kwargs: dict[str, Any] | None = None,
-        discard_weight: int | Collection[int] = (),
         **decoder_kwargs: Any,
     ) -> ErrorRateFunc:
         """Construct a function from physical --> logical error rate in a code capacity model.
@@ -3049,9 +3025,6 @@ class CSSCode(QuditCode):
         See help(qldpc.codes.ClassicalCode.get_logical_error_rate_func) for more details about how
         this method works.
         """
-        if not isinstance(discard_weight, Collection):
-            discard_weight = [discard_weight]
-
         # collect relative probabilities of Z, X, and Y errors
         pauli_bias_zxy: npt.NDArray[np.floating] | None
         if pauli_bias is not None:
@@ -3096,7 +3069,6 @@ class CSSCode(QuditCode):
                     logicals_x,
                     logicals_z,
                     pauli_bias_zxy,
-                    discard_weight,
                 )
             )
         return ErrorRateFunc(
@@ -3112,7 +3084,6 @@ class CSSCode(QuditCode):
         logicals_x: npt.NDArray[np.int_],
         logicals_z: npt.NDArray[np.int_],
         pauli_bias_zxy: npt.NDArray[np.floating] | None,
-        discard_weight: Collection[int],
     ) -> tuple[int, int]:
         """Sample and correct errors of a fixed weight.  Return logical error and discard counts."""
         num_failures = 0
@@ -3129,14 +3100,13 @@ class CSSCode(QuditCode):
                 range(1, self.field.order), size=len(error_locs_z)
             )
             syndrome_z = self.matrix_x @ error_z
-            decoded_error_z = decoder_z.decode(syndrome_z.view(np.ndarray)).view(self.field)
-
-            if discard_weight and np.count_nonzero(decoded_error_z) in discard_weight:
+            decoded_error_z, erasure = _get_error_and_erasure(decoder_z, syndrome_z)
+            if erasure:
                 num_discards += 1
                 continue
 
             failure_z = np.any(logicals_x @ (decoded_error_z - error_z))
-            if not discard_weight and failure_z:
+            if not getattr(decoder_x, "has_erasure_bit", False) and failure_z:
                 # If we are _not_ post-selecting and there _was_ a decoding failure, then there is
                 # no need to consider X-type errors, because we will record one failure either way.
                 num_failures += 1
@@ -3149,10 +3119,8 @@ class CSSCode(QuditCode):
                 range(1, self.field.order), size=len(error_locs_x)
             )
             syndrome_x = self.matrix_z @ error_x
-            decoded_error_x = decoder_x.decode(syndrome_x.view(np.ndarray)).view(self.field)
-            if (
-                discard_weight and np.count_nonzero(decoded_error_x) in discard_weight
-            ):  # pragma: no cover
+            decoded_error_x, erasure = _get_error_and_erasure(decoder_x, syndrome_x)
+            if erasure:
                 num_discards += 1
                 continue
             if failure_z or np.any(logicals_z @ (decoded_error_x - error_x)):
@@ -3309,6 +3277,23 @@ def _get_error_probs_by_weight(
         for kk in range(max_weight + 1)
     ]
     return np.exp(log_probs)
+
+
+def _get_error_and_erasure(
+    decoder: decoders.Decoder,
+    syndrome: galois.FieldArray,
+) -> tuple[galois.FieldArray, bool]:
+    """Decode a syndrome and return the inferred error together with an erasure flag.
+
+    If the decoder has a has_erasure_bit attribute set to True (e.g., a LookupDecoder constructed
+    with add_erasure_bit=True), the last element of the decoded vector is treated as the erasure
+    bit: 1 means the syndrome was not recognized and the sample should be discarded, 0 means a
+    correction was found normally.  The erasure bit is stripped before returning the error.
+    """
+    error = decoder.decode(syndrome.view(np.ndarray))
+    if getattr(decoder, "has_erasure_bit", False):
+        return error[:-1].view(type(syndrome)), bool(error[-1])
+    return error.view(type(syndrome)), False
 
 
 def _join_slices(*sectors: Slice) -> npt.NDArray[np.int_]:
