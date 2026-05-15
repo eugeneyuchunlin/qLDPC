@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import inspect
 import sys
-import warnings
 from collections.abc import Sequence
 
 import galois
@@ -195,7 +194,7 @@ def _to_ldpc_inputs(
     pcm_or_dem: IntegerArray | stim.DetectorErrorModel,
     error_rate: float,
     error_channel: npt.NDArray[np.floating] | Sequence[float] | None,
-) -> tuple[IntegerArray, npt.NDArray[np.floating] | Sequence[float]]:
+) -> tuple[IntegerArray, list[float]]:
     """Post-process the arguments to ldpc decoders."""
     if isinstance(pcm_or_dem, stim.DetectorErrorModel):
         dem_arrays = DetectorErrorModelArrays(pcm_or_dem)
@@ -204,7 +203,7 @@ def _to_ldpc_inputs(
     else:
         pcm = pcm_or_dem
         error_channel = [error_rate] * pcm.shape[1] if error_channel is None else error_channel
-    return pcm, error_channel
+    return pcm, list(error_channel)
 
 
 def get_decoder_MWPM(
@@ -239,14 +238,9 @@ def get_decoder_MWPM(
     if isinstance(pcm_or_dem, stim.DetectorErrorModel):
         dem_arrays = DetectorErrorModelArrays(pcm_or_dem)
         pcm = dem_arrays.detector_flip_matrix
-        if decoder_args.get("error_probabilities") is not None:
-            warnings.warn(
-                "Explicitly provided error_probabilities will override the error probabilities of"
-                " the provided detector error model",
-                stacklevel=2,
-            )
-        else:
-            decoder_args["error_probabilities"] = dem_arrays.error_probs
+        if decoder_args.get("weights") is not None:  # pragma: no cover
+            raise ValueError("Cannot set error weights when initializing a MWPM decoder from a DEM")
+        decoder_args["weights"] = np.log((1 - dem_arrays.error_probs) / dem_arrays.error_probs)
     else:
         pcm = pcm_or_dem
 

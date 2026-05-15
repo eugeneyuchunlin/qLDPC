@@ -236,6 +236,15 @@ class LookupDecoder(Decoder):
     If provided a penalty_func that maps an error to a real number (i.e., a penalty), the decoder
     only assigns correction ee to syndrome ss if (a) ss has no assigned correction, or (b) the
     penalty of ee is <= the penalty of the correction currently assigned to ss.
+
+    If provided an observable_flip_matrix (shape num_observables × num_errors), this decoder picks an
+    error that induces the most likely observable flip for each syndrome, rather than the single most
+    likely error.  Concretely: errors consistent with a given syndrome are grouped by their
+    observable flip value; the total probability of each group is (approximately) the sum of the
+    probabilities of its member errors.  This decoder returns the highest-probability individual
+    error from the group with the highest total probability.  When initialized from a
+    DetectorErrorModel that contains observables, the observable_flip_matrix is extracted
+    automatically.
     """
 
     def __init__(
@@ -247,45 +256,111 @@ class LookupDecoder(Decoder):
         add_erasure_bit: bool = False,
         error_channel: npt.NDArray[np.floating] | Sequence[float] | None = None,
         penalty_func: Callable[[npt.NDArray[np.int_] | Sequence[int]], float] | None = None,
+        observable_flip_matrix: IntegerArray | None = None,
     ) -> None:
         if isinstance(pcm_or_dem, stim.DetectorErrorModel):
-            dem_arrays = DetectorErrorModelArrays(pcm_or_dem)
+            # Initialize from a stim.DetectorErrorModel:
+            # 1. Forbid conflicting arguments.
+            # 2. Extract parity check matrix, error probabilities, and observables (if applicable).
+            if (
+                error_channel is not None
+                or penalty_func is not None
+                or observable_flip_matrix is not None
+            ):  # pragma: no cover
+                raise ValueError(
+                    "Cannot specify an error_channel, penalty_func, or observable_flip_matrix when"
+                    " providing a stim.DetectorErrorModel to a LookupDecoder"
+                )
+            dem_arrays = DetectorErrorModelArrays(pcm_or_dem, simplify=False)
             pcm = dem_arrays.detector_flip_matrix
             error_channel = dem_arrays.error_probs
-            if penalty_func is not None:
-                warnings.warn(
-                    "Explicitly provided penalty_func will override the error probabilities of the "
-                    "provided detector error model",
-                    stacklevel=2,
-                )
+            if dem_arrays.num_observables > 0:
+                observable_flip_matrix = dem_arrays.observable_flip_matrix
+
         else:
+            # initialize from a parity check matrix and forbid conflicting arguments
             pcm = pcm_or_dem
-            assert error_channel is None or penalty_func is None, (
-                "Cannot specify both an error_channel and a penalty_func"
-            )
+            if error_channel is not None and penalty_func is not None:  # pragma: no cover
+                raise ValueError(
+                    "Cannot specify both an error_channel and a penalty_func in a LookupDecoder"
+                )
+            if (
+                observable_flip_matrix is not None
+                and penalty_func is None
+                and error_channel is None
+            ):  # pragma: no cover
+                raise ValueError(
+                    "Predicting observable flips with a LookupDecoder requires providing a"
+                    " stim.DetectorErrorModel, error_channel, or penalty_func"
+                )
 
-        def _maybe_add_erasure_bit(error: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
-            return np.hstack([error, [0]]) if add_erasure_bit else error
-
+        # Construct the "penalty function" for each error.  If we have error probabilities, the
+        # penalty function is penalty_func(error) = -log(probability_of_error)
         penalty_func = penalty_func or (
             self.build_penalty_func(error_channel) if error_channel is not None else None
         )
 
+        # set some useful/necessary attributes
         self.shape: tuple[int, ...] = pcm.shape
-        self.syndrome_to_correction: dict[tuple[int, ...], npt.NDArray[np.int_]] = {}
-
-        error_weights: dict[tuple[int, ...], float] = {}
-        for error, syndrome in LookupDecoder.iter_errors_and_syndromes(pcm, max_weight, symplectic):
-            if penalty_func is None:
-                self.syndrome_to_correction[syndrome] = _maybe_add_erasure_bit(error)
-            elif (error_weight := penalty_func(error)) <= error_weights.get(syndrome, np.inf):
-                error_weights[syndrome] = error_weight
-                self.syndrome_to_correction[syndrome] = _maybe_add_erasure_bit(error)
-
         self.has_erasure_bit = add_erasure_bit
-        self.default_correction = np.zeros(self.shape[1], dtype=int)
-        if add_erasure_bit:
-            self.default_correction = np.hstack([self.default_correction, [1]])
+        self.default_error_to_return = np.zeros(self.shape[1], dtype=int)
+        if self.has_erasure_bit:
+            self.default_error_to_return = np.hstack([self.default_error_to_return, [1]])
+
+        def _maybe_add_erasure_bit(error: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+            return np.hstack([error, [0]]) if self.has_erasure_bit else error
+
+        # start working on the decoding map from syndrome -> error
+        self.syndrome_to_error: dict[tuple[int, ...], npt.NDArray[np.int_]] = {}
+
+        if observable_flip_matrix is None:
+            # Loop over all errors in decreasing weight.  Assign each syndrome its most likely error.
+            error_penalty: dict[tuple[int, ...], float] = {}
+            for error, syndrome in LookupDecoder.iter_errors_and_syndromes(
+                pcm, max_weight, symplectic
+            ):
+                if penalty_func is None:
+                    self.syndrome_to_error[syndrome] = _maybe_add_erasure_bit(error)
+                elif (error_weight := penalty_func(error)) <= error_penalty.get(syndrome, np.inf):
+                    error_penalty[syndrome] = error_weight
+                    self.syndrome_to_error[syndrome] = _maybe_add_erasure_bit(error)
+            return  # we have built the syndrome_to_error map, so we have no more to do!
+
+        # If we got here, we are building a lookup table that maps each syndrome to an error that
+        # induces the most likely observable flips.
+        assert penalty_func is not None  # primarily for type-checking reasons
+
+        def _get_obs_flip(error: npt.NDArray[np.int_]) -> tuple[int, ...]:
+            """Map an error to its induced observable flips."""
+            if isinstance(observable_flip_matrix, galois.FieldArray):  # pragma: no cover
+                error = error.view(type(observable_flip_matrix))
+                obs_flip = (observable_flip_matrix @ error).view(np.ndarray)
+            else:
+                obs_flip = (observable_flip_matrix @ error).view(np.ndarray) % 2
+            return tuple(obs_flip.tolist())
+
+        # For each "key" = (syndrome, observable_flip) combination, identify:
+        # 1. The net probability of each key.
+        # 2. The most likely error for each key.
+        # 3. The probability of the most likely error for each key.
+        Bitstring = tuple[int, ...]
+        net_probs: dict[Bitstring, dict[Bitstring, float]] = collections.defaultdict(dict)
+        most_likely_errors: dict[tuple[Bitstring, Bitstring], npt.NDArray[np.int_]] = {}
+        most_likely_error_probs: dict[tuple[Bitstring, Bitstring], float] = {}
+        for error, syndrome in LookupDecoder.iter_errors_and_syndromes(pcm, max_weight, symplectic):
+            obs_flip = _get_obs_flip(error)
+            prob = np.exp(-penalty_func(error))
+            net_probs[syndrome][obs_flip] = net_probs[syndrome].get(obs_flip, 0.0) + prob
+            if prob > most_likely_error_probs.get((syndrome, obs_flip), 0.0):
+                most_likely_error_probs[syndrome, obs_flip] = prob
+                most_likely_errors[syndrome, obs_flip] = error
+
+        # Identify the most likely observable_flip for each syndrome, and map the syndrome to the
+        # most likely error with that (syndrome, observable_flip) combination.
+        for syndrome, obs_flip_to_net_prob in net_probs.items():
+            most_likely_obs_flip = max(obs_flip_to_net_prob, key=obs_flip_to_net_prob.__getitem__)
+            error = most_likely_errors[syndrome, most_likely_obs_flip]
+            self.syndrome_to_error[syndrome] = _maybe_add_erasure_bit(error)
 
     @staticmethod
     def iter_errors_and_syndromes(
@@ -315,8 +390,8 @@ class LookupDecoder(Decoder):
 
     def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
         """Decode an error syndrome and return an inferred error."""
-        return self.syndrome_to_correction.get(
-            tuple(syndrome.view(np.ndarray)), self.default_correction
+        return self.syndrome_to_error.get(
+            tuple(syndrome.view(np.ndarray)), self.default_error_to_return
         ).copy()
 
     @staticmethod
