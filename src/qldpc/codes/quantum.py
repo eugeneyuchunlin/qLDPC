@@ -1561,10 +1561,7 @@ class SLPCode(CSSCode):
         pivots_b = _get_pivot_matrix(generator_b)
         logical_ops_x = np.kron(pivots_a, generator_b)
         logical_ops_z = np.kron(generator_a, pivots_b)
-        return (
-            abstract.RingArray.build(logical_ops_x, ring),
-            abstract.RingArray.build(logical_ops_z, ring),
-        )
+        return logical_ops_x.view(abstract.RingArray), logical_ops_z.view(abstract.RingArray)
 
     @staticmethod
     def to_lifted_logical_ops(

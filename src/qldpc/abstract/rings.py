@@ -801,9 +801,9 @@ class RingArray(npt.NDArray[np.object_]):
         # pad zero rows to components that have fewer rows
         num_rows = max(len(matrix) for matrix in matrices)
         for mm, matrix in enumerate(matrices):
-            if len(matrix) < num_rows:
+            if pad := num_rows - len(matrix):
                 field = type(matrix)
-                stack = [matrix, field.Zeros((1, *matrix.shape[1:]))]
+                stack = [matrix, field.Zeros((pad, *matrix.shape[1:]))]
                 matrices[mm] = np.concatenate(stack).view(field)
 
         pivot_row = 0
@@ -1118,8 +1118,6 @@ class WedderburnArtinComponentTransformer:
 
     This class is an instrument for projecting elements of R onto a simple component S corresponding
     to a provided PCI e, and embedding elements of S back into R.
-
-    Non-commutative rings are not yet supported.
 
     References:
     - https://en.wikipedia.org/wiki/Wedderburn%E2%80%93Artin_theorem
