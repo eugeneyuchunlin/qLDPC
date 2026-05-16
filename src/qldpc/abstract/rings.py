@@ -1823,7 +1823,7 @@ def _get_block_howell_form(matrix: galois.FieldArray) -> galois.FieldArray:
     if size == 1:
         return matrix.view(field)
 
-    # expand into a 2-D matrix
+    # expand the matrix and shift pivots down so that they always lie on the diagonal of each block
     shape = (num_block_rows * size, num_block_cols * size)
     matrix = matrix.transpose(0, 2, 1, 3).reshape(shape).view(field)
 
