@@ -1413,7 +1413,7 @@ class LPCode(CSSCode):
         generator_b_T = matrix_b.T.null_space().howell_normal_form()
 
         def _get_pivot_matrix(matrix: abstract.RingArray) -> abstract.RingArray:
-            """Build a new matrix zeros out a row-reduced matrix everywhere except the pivots."""
+            """Build a new matrix with only the pivot elements, zeroing everything else."""
             new_matrix = np.zeros(matrix.shape, dtype=object)
             for row, col in enumerate(qldpc.math.first_nonzero_cols(matrix)):
                 new_matrix[row, col] = matrix[row, col].copy()
@@ -1551,7 +1551,7 @@ class SLPCode(CSSCode):
         generator_b = matrix_b.null_space().howell_normal_form()
 
         def _get_pivot_matrix(matrix: abstract.RingArray) -> abstract.RingArray:
-            """Build a new matrix zeros out a row-reduced matrix everywhere except the pivots."""
+            """Build a new matrix with only the pivot elements, zeroing everything else."""
             new_matrix = np.zeros(matrix.shape, dtype=object)
             for row, col in enumerate(qldpc.math.first_nonzero_cols(matrix)):
                 new_matrix[row, col] = matrix[row, col].copy()
