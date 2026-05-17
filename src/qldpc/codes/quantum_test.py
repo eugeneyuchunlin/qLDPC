@@ -493,7 +493,7 @@ def test_lifted_product_line_logicals(
         np.eye(code.dimension),
     )
 
-    # not all lifted product codes support canonical line operators.
+    # not all lifted product codes support canonical line operators
     group = abstract.CyclicGroup(2)
     ring = abstract.GroupRing(group, field=2)
     values = [[group.random() for _ in range(cols)] for _ in range(rows)]
@@ -504,6 +504,23 @@ def test_lifted_product_line_logicals(
 
     with pytest.raises(ValueError, match="not yet supported"):
         codes.SLPCode(matrix, set_logicals=True)
+
+    # we don't yet support the construction of ring-logical line ops with non-commutative rings,
+    # but we are working towards it, and support some necessary features
+    ring = abstract.GroupRing(abstract.AlternatingGroup(4), field=5)
+    values = [[ring.group.random() for _ in range(cols)] for _ in range(rows)]
+    matrix = abstract.RingArray.build(values, ring)
+    generator = matrix.null_space().howell_normal_form()
+    assert not np.any(matrix @ generator.T)
+
+    weak_dual = codes.quantum._get_weak_dual(generator)
+    test_matrix = generator @ weak_dual.T
+    test_matrix_bool = test_matrix.astype(bool)
+    np.fill_diagonal(test_matrix_bool, False)
+    assert not np.any(test_matrix_bool)
+    assert np.linalg.matrix_rank(test_matrix.regular_lift()) == np.linalg.matrix_rank(
+        generator.regular_lift()
+    )
 
 
 def test_quantum_tanner(pytestconfig: pytest.Config) -> None:

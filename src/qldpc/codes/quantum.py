@@ -1405,45 +1405,26 @@ class LPCode(CSSCode):
 
         Generalizes HGPCode.get_canonical_logical_line_ops.
         """
-        ring = matrix_a.ring
-        transformer = ring.get_transformer()
-
         generator_a = matrix_a.null_space().howell_normal_form()
         generator_b = matrix_b.null_space().howell_normal_form()
         generator_a_T = matrix_a.T.null_space().howell_normal_form()
         generator_b_T = matrix_b.T.null_space().howell_normal_form()
 
-        def _get_pivot_matrix(matrix: abstract.RingArray) -> abstract.RingArray:
-            """Build a new matrix with only the pivot elements, zeroing everything else."""
-            new_matrix = np.zeros(matrix.shape, dtype=object)
-            for row, col in enumerate(qldpc.math.first_nonzero_cols(matrix)):
-                matrix_pivot = matrix[row, col].copy()
-                if ring.is_commutative:
-                    new_matrix_entry = matrix_pivot
-                else:
-                    new_matrix_entry = sum(
-                        component.embed(np.diag(np.diag(mat)).view(component.extended_field)).T
-                        for component in transformer.transformers
-                        if np.any(mat := component.project(matrix_pivot))
-                    )
-                new_matrix[row, col] = new_matrix_entry
-            return abstract.RingArray.build(new_matrix, ring)
+        dual_a = _get_weak_dual(generator_a)  # for which generator_a @ dual_a.T is diagonal
+        dual_b = _get_weak_dual(generator_b)
+        dual_a_T = _get_weak_dual(generator_a_T)
+        dual_b_T = _get_weak_dual(generator_b_T)
 
-        pivots_a = _get_pivot_matrix(generator_a)
-        pivots_b = _get_pivot_matrix(generator_b)
-        pivots_a_T = _get_pivot_matrix(generator_a_T)
-        pivots_b_T = _get_pivot_matrix(generator_b_T)
-
-        logical_ops_x_l = np.kron(pivots_a, generator_b)
-        logical_ops_z_l = np.kron(generator_a, pivots_b)
-        logical_ops_x_r = np.kron(generator_a_T, pivots_b_T)
-        logical_ops_z_r = np.kron(pivots_a_T, generator_b_T)
+        logical_ops_x_l = np.kron(dual_a, generator_b)
+        logical_ops_z_l = np.kron(generator_a, dual_b)
+        logical_ops_x_r = np.kron(generator_a_T, dual_b_T)
+        logical_ops_z_r = np.kron(dual_a_T, generator_b_T)
 
         logical_ops_x = scipy.linalg.block_diag(logical_ops_x_l, logical_ops_x_r)
         logical_ops_z = scipy.linalg.block_diag(logical_ops_z_l, logical_ops_z_r)
         return (
-            abstract.RingArray.build(logical_ops_x, ring),
-            abstract.RingArray.build(logical_ops_z, ring),
+            abstract.RingArray.build(logical_ops_x, matrix_a.ring),
+            abstract.RingArray.build(logical_ops_z, matrix_a.ring),
         )
 
     @staticmethod
@@ -1463,7 +1444,7 @@ class LPCode(CSSCode):
                 ops_x = op_x.regular_lift()
                 ops_z = op_z.regular_lift()
             else:
-                inner_product_lift = inner_product.lift()
+                inner_product_lift = inner_product.regular_lift()
                 sector_rank = np.linalg.matrix_rank(inner_product_lift)
                 basis_change = np.linalg.inv(inner_product_lift[:sector_rank, :sector_rank]).T
                 ops_x = op_x.regular_lift()[:sector_rank]
@@ -1472,6 +1453,37 @@ class LPCode(CSSCode):
             lifted_ops_z = np.vstack([lifted_ops_z, ops_z])
 
         return lifted_ops_x, lifted_ops_z
+
+
+def _get_weak_dual(
+    matrix_hnf: abstract.RingArray, transformer: abstract.WedderburnArtinTransformer | None = None
+) -> abstract.RingArray:
+    """Build a "weak dual" of a matrix in Howell normal form.
+
+    The weak dual 'matrix_dual' of 'matrix_hnf' satisfies:
+        1. 'matrix_hnf @ matrix_dual.T' is a diagonal matrix.
+        2. The rank of 'matrix_hnf' is equal to the rank of 'matrix_hnf @ matrix_dual.T'.
+    This construction thereby generalizes that of a dual basis for a vector space over a
+    finite field, for which 'matrix_hnf @ matrix_dual.T' would be an identity matrix.
+
+    This method assumes that matrix_hnf is in Howell normal form.
+    """
+    ring = matrix_hnf.ring
+    transformer = transformer = transformer or ring.get_transformer()
+    matrix_dual = np.zeros(matrix_hnf.shape, dtype=object)
+    for row, col in enumerate(qldpc.math.first_nonzero_cols(matrix_hnf)):
+        pivot = matrix_hnf[row, col].copy()
+        if ring.is_commutative:
+            new_matrix_entry = pivot
+        else:
+            new_matrix_entry = ring.zero
+            for component_transformer in transformer.transformers:
+                if np.any(component := component_transformer.project(pivot)):
+                    field = component_transformer.extended_field
+                    diags = np.diag(np.diag(component)).view(field)
+                    new_matrix_entry += component_transformer.embed(diags).T
+        matrix_dual[row, col] = new_matrix_entry
+    return abstract.RingArray.build(matrix_dual, ring)
 
 
 class SLPCode(CSSCode):
@@ -1555,32 +1567,14 @@ class SLPCode(CSSCode):
 
         Generalizes SHPCode.get_canonical_logical_line_ops.
         """
-        ring = matrix_a.ring
-        transformer = ring.get_transformer()
-
         generator_a = matrix_a.null_space().howell_normal_form()
         generator_b = matrix_b.null_space().howell_normal_form()
 
-        def _get_pivot_matrix(matrix: abstract.RingArray) -> abstract.RingArray:
-            """Build a new matrix with only the pivot elements, zeroing everything else."""
-            new_matrix = np.zeros(matrix.shape, dtype=object)
-            for row, col in enumerate(qldpc.math.first_nonzero_cols(matrix)):
-                matrix_pivot = matrix[row, col].copy()
-                if ring.is_commutative:
-                    new_matrix_entry = matrix_pivot
-                else:
-                    new_matrix_entry = sum(
-                        component.embed(np.diag(np.diag(mat)).view(component.extended_field)).T
-                        for component in transformer.transformers
-                        if np.any(mat := component.project(matrix_pivot))
-                    )
-                new_matrix[row, col] = new_matrix_entry
-            return abstract.RingArray.build(new_matrix, ring)
+        dual_a = _get_weak_dual(generator_a)  # for which generator_a @ dual_a.T is diagonal
+        dual_b = _get_weak_dual(generator_b)
 
-        pivots_a = _get_pivot_matrix(generator_a)
-        pivots_b = _get_pivot_matrix(generator_b)
-        logical_ops_x = np.kron(pivots_a, generator_b)
-        logical_ops_z = np.kron(generator_a, pivots_b)
+        logical_ops_x = np.kron(dual_a, generator_b)
+        logical_ops_z = np.kron(generator_a, dual_b)
         return logical_ops_x.view(abstract.RingArray), logical_ops_z.view(abstract.RingArray)
 
     @staticmethod
