@@ -1406,6 +1406,7 @@ class LPCode(CSSCode):
         Generalizes HGPCode.get_canonical_logical_line_ops.
         """
         ring = matrix_a.ring
+        transformer = ring.get_transformer()
 
         generator_a = matrix_a.null_space().howell_normal_form()
         generator_b = matrix_b.null_space().howell_normal_form()
@@ -1416,7 +1417,16 @@ class LPCode(CSSCode):
             """Build a new matrix with only the pivot elements, zeroing everything else."""
             new_matrix = np.zeros(matrix.shape, dtype=object)
             for row, col in enumerate(qldpc.math.first_nonzero_cols(matrix)):
-                new_matrix[row, col] = matrix[row, col].copy()
+                matrix_pivot = matrix[row, col].copy()
+                if ring.is_commutative:
+                    new_matrix_entry = matrix_pivot
+                else:
+                    new_matrix_entry = sum(
+                        component.embed(np.diag(np.diag(mat)).view(component.extended_field)).T
+                        for component in transformer.transformers
+                        if np.any(mat := component.project(matrix_pivot))
+                    )
+                new_matrix[row, col] = new_matrix_entry
             return abstract.RingArray.build(new_matrix, ring)
 
         pivots_a = _get_pivot_matrix(generator_a)
@@ -1546,6 +1556,7 @@ class SLPCode(CSSCode):
         Generalizes SHPCode.get_canonical_logical_line_ops.
         """
         ring = matrix_a.ring
+        transformer = ring.get_transformer()
 
         generator_a = matrix_a.null_space().howell_normal_form()
         generator_b = matrix_b.null_space().howell_normal_form()
@@ -1554,7 +1565,16 @@ class SLPCode(CSSCode):
             """Build a new matrix with only the pivot elements, zeroing everything else."""
             new_matrix = np.zeros(matrix.shape, dtype=object)
             for row, col in enumerate(qldpc.math.first_nonzero_cols(matrix)):
-                new_matrix[row, col] = matrix[row, col].copy()
+                matrix_pivot = matrix[row, col].copy()
+                if ring.is_commutative:
+                    new_matrix_entry = matrix_pivot
+                else:
+                    new_matrix_entry = sum(
+                        component.embed(np.diag(np.diag(mat)).view(component.extended_field)).T
+                        for component in transformer.transformers
+                        if np.any(mat := component.project(matrix_pivot))
+                    )
+                new_matrix[row, col] = new_matrix_entry
             return abstract.RingArray.build(new_matrix, ring)
 
         pivots_a = _get_pivot_matrix(generator_a)
