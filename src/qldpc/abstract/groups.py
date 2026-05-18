@@ -138,7 +138,7 @@ class Group:
 
     _group: comb.PermutationGroup
     _name: str | None
-    _iterator: GenerateFunc | None
+    _generate_func: GenerateFunc | None
     _lift: Lift | None
 
     def __init__(
@@ -158,16 +158,17 @@ class Group:
         lift: Lift | None = None,
     ) -> None:
         """Initialize from an existing group."""
-        self._name = name
         if isinstance(group, comb.PermutationGroup):
             self._group = group
+            self._name = name
+            self._generate_func = generate_func
             self._lift = lift
         else:
             assert isinstance(group, Group)
             self._group = group._group
-            self._name = self._name or group._name  # explicitly provided name overrides group name
+            self._name = name or group._name
+            self._generate_func = generate_func or group._generate_func
             self._lift = lift or group._lift
-        self._generate_func = generate_func
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, Group) and self._group == other._group
@@ -213,6 +214,11 @@ class Group:
         return self.is_commutative
 
     @property
+    def identity(self) -> GroupMember:
+        """The identity element of this group."""
+        return GroupMember.from_sympy(self._group.identity)
+
+    @property
     def generators(self) -> list[GroupMember]:
         """Generators of this group."""
         return list(map(GroupMember.from_sympy, self._group.generators))
@@ -221,19 +227,15 @@ class Group:
         """Generators of this group in a hashable form."""
         return tuple(tuple(generator) for generator in self.generators)
 
-    def generate(self) -> Iterator[GroupMember]:
-        """Iterate over all group members."""
-        generate = self._generate_func or self._group.generate
-        yield from map(GroupMember.from_sympy, generate())
-
-    @property
-    def identity(self) -> GroupMember:
-        """The identity element of this group."""
-        return GroupMember.from_sympy(self._group.identity)
-
     @functools.cached_property
     def _members(self) -> dict[GroupMember, int]:
-        return {member: idx for idx, member in enumerate(self.generate())}
+        generate = self._generate_func or self._group.generate
+        members = map(GroupMember.from_sympy, generate())
+        return {member: idx for idx, member in enumerate(members)}
+
+    def generate(self) -> Iterator[GroupMember]:
+        """Iterate over all group members."""
+        yield from self._members
 
     def index(self, member: GroupMember) -> int:
         """The index of a GroupMember in this group."""
@@ -334,15 +336,18 @@ class Group:
         integer_lift: IntegerLift | None = None,
     ) -> Group:
         """Construct a group from a multiplication (Cayley) table."""
-        members = {GroupMember(row): idx for idx, row in enumerate(table)}
+        members = {GroupMember(col): idx for idx, col in enumerate(np.asarray(table).T)}
+
+        def generate_func() -> Iterator[comb.Permutation]:
+            yield from members
 
         if integer_lift is None:
-            return Group(*members)
+            return Group(*members, generate_func=generate_func)
 
         def lift(member: GroupMember) -> npt.NDArray[np.int_]:
             return integer_lift(members[member])
 
-        return Group(*members, lift=lift)
+        return Group(*members, generate_func=generate_func, lift=lift)
 
     @staticmethod
     def from_generating_mats(*matrices: npt.NDArray[np.int_] | Sequence[Sequence[int]]) -> Group:
@@ -604,6 +609,7 @@ class QuaternionGroup(Group):
     """Quaternion group: 1, i, j, k, -1, -i, -j, -k."""
 
     # multiplication table for this group
+
     _table = [
         [0, 1, 2, 3, 4, 5, 6, 7],
         [1, 4, 3, 6, 5, 0, 7, 2],
@@ -622,18 +628,15 @@ class QuaternionGroup(Group):
             assert 0 <= member < 8
             sign = 1 if member < 4 else -1
             base = member % 4  # +/- 1, i, j, k
-            zero = np.zeros((2, 2), dtype=int)
-            unit = np.eye(2, dtype=int)
-            imag = np.array([[0, -1], [1, 0]], dtype=int)
             if base == 0:  # +/- 1
-                blocks = [[unit, zero], [zero, unit]]
+                mat = [[1, 0], [0, 1]]
             elif base == 1:  # +/- i
-                blocks = [[imag, zero], [zero, -imag]]
+                mat = [[1, 1], [1, -1]]
             elif base == 2:  # +/- j
-                blocks = [[zero, -unit], [unit, zero]]
+                mat = [[-1, 1], [1, 1]]
             else:  # if base == 3; +/- k
-                blocks = [[zero, -imag], [-imag, zero]]
-            return sign * (np.block(blocks).T % 3).view(galois.GF(3))
+                mat = [[0, -1], [1, 0]]
+            return sign * (np.array(mat, dtype=int) % 3).view(galois.GF(3))
 
         group = Group.from_table(self._table, integer_lift=integer_lift)
         super()._init_from_group(group, name=QuaternionGroup.__name__)
@@ -641,15 +644,11 @@ class QuaternionGroup(Group):
     @property
     def generators(self) -> list[GroupMember]:
         """Generators of the quaternion group: [i, j]."""
-        return [GroupMember(self._table[1]), GroupMember(self._table[2])]
-
-    def generate(self) -> Iterator[GroupMember]:
-        """Iterate over all group members."""
-        ii, jj = self.generators
-        kk = ii * jj
-        one = self.identity
-        minus_one = ii * ii
-        yield from [one, ii, jj, kk, minus_one, minus_one * ii, minus_one * jj, minus_one * kk]
+        generator = self.generate()
+        next(generator)
+        ii = next(generator)
+        jj = next(generator)
+        return [ii, jj]
 
 
 class SmallGroup(Group):

@@ -57,11 +57,13 @@ class GroupRing:
 
     _group: Group
     _field: type[galois.FieldArray]
-    _transformer: WedderburnArtinTransformer | None = None
+    _transformers: dict[int | None, WedderburnArtinTransformer]
+    _idempotents: tuple[RingMember, ...] | None = None
 
     def __init__(self, group: Group, field: int | None = None) -> None:
         self._group = group
         self._field = galois.GF(field or DEFAULT_FIELD_ORDER)
+        self._transformers = {}
 
     @property
     def group(self) -> Group:
@@ -73,13 +75,13 @@ class GroupRing:
         """Base field of this ring."""
         return self._field
 
-    def get_transformer(
-        self, seed: np.random.Generator | int | None = None
-    ) -> WedderburnArtinTransformer:
+    def get_transformer(self, seed: int | None = None) -> WedderburnArtinTransformer:
         """Instrument for the Wedderburn-Artin decomposition of this ring."""
-        if self._transformer is None or seed is not None:
-            self._transformer = WedderburnArtinTransformer(self, seed=seed)
-        return self._transformer
+        if seed not in self._transformers:
+            if seed is None and self._transformers:
+                return next(iter(self._transformers.values()))
+            self._transformers[seed] = WedderburnArtinTransformer(self, seed=seed)
+        return self._transformers[seed]
 
     def __eq__(self, other: object) -> bool:
         return (
@@ -164,23 +166,25 @@ class GroupRing:
         """
         if not self.is_semisimple:
             raise ValueError("Only semisimple rings have primitive central idempotents")
-        idempotents_as_tuples = external.groups.get_primitive_central_idempotents(
-            self.group.to_gap_group(), self.field.order
-        )
-        idempotents = []
-        for idempotent in idempotents_as_tuples:
-            # collect terms, coercing cycles into elements of self.group
-            terms = [
-                (
-                    self.field(coefficient),
-                    GroupMember(cycles) * self.group.identity
-                    if cycles != ((),)  # the empty cycle needs special treatment
-                    else self.group.identity,
-                )
-                for coefficient, cycles in idempotent
-            ]
-            idempotents.append(RingMember(self, *terms))
-        return tuple(idempotents)
+        if self._idempotents is None:
+            idempotents_as_tuples = external.groups.get_primitive_central_idempotents(
+                self.group.to_gap_group(), self.field.order
+            )
+            idempotents = []
+            for idempotent in idempotents_as_tuples:
+                # collect terms, coercing cycles into elements of self.group
+                terms = [
+                    (
+                        self.field(coefficient),
+                        GroupMember(cycles) * self.group.identity
+                        if cycles != ((),)  # the empty cycle needs special treatment
+                        else self.group.identity,
+                    )
+                    for coefficient, cycles in idempotent
+                ]
+                idempotents.append(RingMember(self, *terms))
+            self._idempotents = tuple(idempotents)
+        return self._idempotents
 
     def eval(
         self, expression: sympy.Basic | int | np.int_, symbols: dict[sympy.Symbol, GroupMember]
@@ -1808,7 +1812,7 @@ def _get_block_howell_form(matrix: galois.FieldArray) -> galois.FieldArray:
     field = type(matrix)
     num_block_rows, num_block_cols, size, _ = matrix.shape
 
-    # row-reduce as an expanded 2-D matrix
+    # row-reduce as an expanded 2-D matrix and remove all-zero rows
     shape = (num_block_rows * size, num_block_cols * size)
     matrix = matrix.transpose(0, 2, 1, 3).reshape(shape).view(field).row_reduce()
     matrix = matrix[qldpc.math.first_nonzero_cols(matrix) < matrix.shape[1]].view(field)
@@ -1817,7 +1821,7 @@ def _get_block_howell_form(matrix: galois.FieldArray) -> galois.FieldArray:
         # insert zero rows to shift pivots down so that they always lie on the diagonal of a block
         pivot_row, pivot_col = 0, 0
         num_cols = matrix.shape[1]
-        while pivot_row < matrix.shape[0] and pivot_col < matrix.shape[1]:
+        while pivot_row < matrix.shape[0]:
             pivot_col = qldpc.math.first_nonzero_cols(matrix[pivot_row])[0]
             if pivot_row % size == 0:
                 pivot_block_col = pivot_col // size
@@ -1828,11 +1832,10 @@ def _get_block_howell_form(matrix: galois.FieldArray) -> galois.FieldArray:
             pivot_row += 1
 
         # pad with zero rows on the bottom to ensure that all blocks have the correct size
-        if tail := matrix.shape[0] % size:
+        if tail := matrix.shape[0] % size:  # pragma: no cover
             zero_rows = np.zeros((size - tail, num_cols), dtype=int)
             matrix = np.vstack([matrix, zero_rows]).view(field)
 
-    # re-collect into a 4-D array and remove rows of all-zero blocks
+    # re-collect into a 4-D array
     shape = (matrix.shape[0] // size, size, num_block_cols, size)
-    matrix = matrix.reshape(shape).transpose(0, 2, 1, 3).view(field)
-    return matrix[qldpc.math.first_nonzero_cols(matrix) < num_block_cols].view(field)
+    return matrix.reshape(shape).transpose(0, 2, 1, 3).view(field)

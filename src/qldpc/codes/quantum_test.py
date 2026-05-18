@@ -469,7 +469,11 @@ def test_subsystem_lifted_product_codes() -> None:
 
 
 def test_lifted_product_line_logicals(
-    pytestconfig: pytest.Config, rows: int = 3, cols: int = 2
+    pytestconfig: pytest.Config,
+    ring_cyclic3_gf2: abstract.GroupRing,
+    ring_alternating4_gf5: abstract.GroupRing,
+    rows: int = 2,
+    cols: int = 3,
 ) -> None:
     """Canonical line operators of lifted product codes."""
     code: codes.CSSCode
@@ -477,9 +481,8 @@ def test_lifted_product_line_logicals(
     seed = pytestconfig.getoption("randomly_seed")
     sympy.core.random.seed(seed)
 
-    group = abstract.CyclicGroup(3)
-    ring = abstract.GroupRing(group, field=2)
-    values = [[group.random() for _ in range(cols)] for _ in range(rows)]
+    ring = ring_cyclic3_gf2
+    values = [[ring.group.random() for _ in range(cols)] for _ in range(rows)]
     matrix = abstract.RingArray.build(values, ring)
     code = codes.LPCode(matrix, set_logicals=True)
     assert np.array_equal(
@@ -494,33 +497,26 @@ def test_lifted_product_line_logicals(
     )
 
     # not all lifted product codes support canonical line operators
-    group = abstract.CyclicGroup(2)
-    ring = abstract.GroupRing(group, field=2)
-    values = [[group.random() for _ in range(cols)] for _ in range(rows)]
+    ring = abstract.GroupRing(abstract.CyclicGroup(2), field=2)
+    values = [[ring.group.random() for _ in range(cols)] for _ in range(rows)]
     matrix = abstract.RingArray.build(values, ring)
-
     with pytest.raises(ValueError, match="not yet supported"):
         codes.LPCode(matrix, set_logicals=True)
-
     with pytest.raises(ValueError, match="not yet supported"):
         codes.SLPCode(matrix, set_logicals=True)
 
     # we don't yet support the construction of ring-logical line ops with non-commutative rings,
     # but we are working towards it, and support some necessary features
-    ring = abstract.GroupRing(abstract.AlternatingGroup(4), field=5)
+    ring = ring_alternating4_gf5
     values = [[ring.group.random() for _ in range(cols)] for _ in range(rows)]
     matrix = abstract.RingArray.build(values, ring)
     generator = matrix.null_space().howell_normal_form()
+    dual = codes.quantum._get_howell_dual(generator)
+    diag = generator @ dual.T
     assert not np.any(matrix @ generator.T)
-
-    weak_dual = codes.quantum._get_howell_dual(generator)
-    test_matrix = generator @ weak_dual.T
-    test_matrix_bool = test_matrix.astype(bool)
-    np.fill_diagonal(test_matrix_bool, False)
-    assert not np.any(test_matrix_bool)
-    assert np.linalg.matrix_rank(test_matrix.regular_lift()) == np.linalg.matrix_rank(
-        generator.regular_lift()
-    )
+    assert np.array_equal(diag.astype(bool), np.eye(len(diag), dtype=bool))
+    assert np.array_equal(diag @ generator, generator)
+    assert np.array_equal(diag.T @ dual, dual)
 
 
 def test_quantum_tanner(pytestconfig: pytest.Config) -> None:
