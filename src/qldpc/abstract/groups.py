@@ -320,9 +320,21 @@ class Group:
             matrix[self.index(~gg), ii] = 1
         return matrix
 
-    def lift(self, member: GroupMember) -> npt.NDArray[np.int_]:
-        """Lift a group member to a representation by an orthogonal matrix."""
-        return self.regular_lift(member) if self._lift is None else self._lift(member)
+    def lift(self, member: GroupMember, *, right: bool = False) -> npt.NDArray[np.int_]:
+        """Lift a group member to a representation by an orthogonal matrix.
+
+        A representation satisfies
+            self.lift(g·h) = self.lift(g) @ self.lift(h).
+        If right=True, lift to an anti-representation, for which
+            self.lift(g·h) = self.lift(h) @ self.lift(g).
+        """
+        if self._lift is None:
+            return self.regular_lift(member, right=right)
+        if not right or self.is_commutative:
+            return self._lift(member)
+        raise ValueError(
+            "Anti-representations for non-commutative groups with custom lifts are not supported"
+        )
 
     @functools.cached_property
     def lift_dim(self) -> int:

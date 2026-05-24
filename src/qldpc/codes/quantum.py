@@ -936,7 +936,6 @@ class HGPCode(CSSCode):
             field,
             is_subsystem_code=False,
         )
-
         if set_logicals:
             logical_ops_xz = HGPCode.get_canonical_logical_line_ops(
                 self.code_a.matrix, self.code_b.matrix
@@ -1002,15 +1001,17 @@ class HGPCode(CSSCode):
         matrix_a: FieldOrRingArray, matrix_b: FieldOrRingArray
     ) -> tuple[FieldOrRingArray, FieldOrRingArray]:
         """Hypergraph product of two parity check matrices."""
+        _kron = abstract.kron if isinstance(matrix_a, abstract.RingArray) else np.kron
+
         # construct the nontrivial blocks of the final parity check matrices
-        mat_H1_In2 = np.kron(matrix_a, np.eye(matrix_b.shape[1], dtype=int))
-        mat_In1_H2 = np.kron(np.eye(matrix_a.shape[1], dtype=int), matrix_b)
-        mat_H1_T_Im2 = np.kron(matrix_a.T, np.eye(matrix_b.shape[0], dtype=int))
-        mat_Im1_H2_T = np.kron(np.eye(matrix_a.shape[0], dtype=int), matrix_b.T)
+        mat_H1_In2 = _kron(matrix_a, np.eye(matrix_b.shape[1], dtype=int))
+        mat_In1_H2 = _kron(np.eye(matrix_a.shape[1], dtype=int), matrix_b)
+        mat_H1_T_Im2 = _kron(matrix_a.T, np.eye(matrix_b.shape[0], dtype=int))
+        mat_Im1_H2_T = _kron(np.eye(matrix_a.shape[0], dtype=int), matrix_b.T)
 
         # construct the X-sector and Z-sector parity check matrices
-        matrix_x = np.block([mat_H1_In2, mat_Im1_H2_T])
-        matrix_z = np.block([-mat_In1_H2, mat_H1_T_Im2])  # type:ignore[misc]
+        matrix_x = np.hstack([mat_H1_In2, mat_Im1_H2_T])
+        matrix_z = np.hstack([-mat_In1_H2, mat_H1_T_Im2])  # type: ignore[misc]
         return matrix_x.view(type(matrix_a)), matrix_z.view(type(matrix_a))
 
     @staticmethod
@@ -1256,9 +1257,10 @@ class SHPCode(CSSCode):
         matrix_a: FieldOrRingArray, matrix_b: FieldOrRingArray
     ) -> tuple[FieldOrRingArray, FieldOrRingArray]:
         """Subsystem hypergraph product of two parity check matrices."""
-        matrix_x = np.kron(matrix_a, np.eye(matrix_b.shape[1], dtype=int)).view(type(matrix_a))
-        matrix_z = np.kron(np.eye(matrix_a.shape[1], dtype=int), matrix_b).view(type(matrix_a))
-        return matrix_x, matrix_z
+        _kron = abstract.kron if isinstance(matrix_a, abstract.RingArray) else np.kron
+        matrix_x = _kron(matrix_a, np.eye(matrix_b.shape[1], dtype=int))
+        matrix_z = _kron(np.eye(matrix_a.shape[1], dtype=int), matrix_b)
+        return matrix_x.view(type(matrix_a)), matrix_z.view(type(matrix_a))
 
     @staticmethod
     def get_canonical_logical_line_ops(
@@ -1361,12 +1363,12 @@ class LPCode(CSSCode):
             matrix_b = matrix_a
         self.matrix_a = abstract.RingArray(matrix_a)
         self.matrix_b = abstract.RingArray(matrix_b)
-        field = self.matrix_a.field.order
+
+        ring = self.matrix_a.ring
+        field = ring.field.order
 
         # identify X-sector and Z-sector parity checks
         matrix_x, matrix_z = HGPCode.get_matrix_product(self.matrix_a, self.matrix_b)
-        assert isinstance(matrix_x, abstract.RingArray)
-        assert isinstance(matrix_z, abstract.RingArray)
 
         # identify the number of qudits in each sector
         self.sector_size = self.matrix_a.group.lift_dim * np.outer(
@@ -1415,17 +1417,14 @@ class LPCode(CSSCode):
         dual_a_T = _get_howell_dual(generator_a_T)
         dual_b_T = _get_howell_dual(generator_b_T)
 
-        logical_ops_x_l = np.kron(dual_a, generator_b)
-        logical_ops_z_l = np.kron(generator_a, dual_b)
-        logical_ops_x_r = np.kron(generator_a_T, dual_b_T)
-        logical_ops_z_r = np.kron(dual_a_T, generator_b_T)
+        logical_ops_x_l = abstract.kron(dual_a, generator_b)
+        logical_ops_z_l = abstract.kron(generator_a, dual_b)
+        logical_ops_x_r = abstract.kron(generator_a_T, dual_b_T)
+        logical_ops_z_r = abstract.kron(dual_a_T, generator_b_T)
 
-        logical_ops_x = scipy.linalg.block_diag(logical_ops_x_l, logical_ops_x_r)
-        logical_ops_z = scipy.linalg.block_diag(logical_ops_z_l, logical_ops_z_r)
-        return (
-            abstract.RingArray.build(logical_ops_x, matrix_a.ring),
-            abstract.RingArray.build(logical_ops_z, matrix_a.ring),
-        )
+        logical_ops_x = _block_diag(logical_ops_x_l, logical_ops_x_r)
+        logical_ops_z = _block_diag(logical_ops_z_l, logical_ops_z_r)
+        return logical_ops_x, logical_ops_z
 
     @staticmethod
     def to_lifted_logical_ops(
@@ -1436,19 +1435,18 @@ class LPCode(CSSCode):
         num_columns = logical_ops_x.shape[1]
         block_length = num_columns * ring.group.order
 
+        identity = np.eye(ring.group.order, dtype=int)
         lifted_ops_x = ring.field.Zeros((0, block_length))
         lifted_ops_z = ring.field.Zeros((0, block_length))
         for row, (op_x, op_z) in enumerate(zip(logical_ops_x, logical_ops_z)):
-            inner_product = op_x @ op_z.T
-            if inner_product == ring.one:
-                ops_x = op_x.regular_lift()
-                ops_z = op_z.regular_lift()
-            else:
-                inner_product_lift = inner_product.regular_lift()
-                sector_rank = np.linalg.matrix_rank(inner_product_lift)
-                basis_change = np.linalg.inv(inner_product_lift[:sector_rank, :sector_rank]).T
-                ops_x = op_x.regular_lift()[:sector_rank]
-                ops_z = basis_change @ op_z.regular_lift()[:sector_rank]
+            ops_x = op_x.lift()
+            ops_z = op_z.lift()
+            inner_product = ops_x @ ops_z.T
+            if not np.array_equal(inner_product, identity):
+                sector_rank = np.linalg.matrix_rank(inner_product)
+                basis_change = np.linalg.inv(inner_product[:sector_rank, :sector_rank]).T
+                ops_x = ops_x[:sector_rank]
+                ops_z = basis_change @ ops_z[:sector_rank]
             lifted_ops_x = np.vstack([lifted_ops_x, ops_x])
             lifted_ops_z = np.vstack([lifted_ops_z, ops_z])
 
@@ -1497,6 +1495,30 @@ def _get_howell_dual(
     return abstract.RingArray.build(dual_matrix, ring)
 
 
+def _block_diag(matrix_a: abstract.RingArray, matrix_b: abstract.RingArray) -> abstract.RingArray:
+    """Stack the two matrices into a block-diagonal matrix.
+
+    If the two matrices have more than two dimensions, stack along the first two axes.
+    """
+    assert (
+        matrix_a.ndim == matrix_b.ndim
+        and matrix_a.ndim >= 2
+        and matrix_a.shape[2:] == matrix_b.shape[2:]
+    )
+    if matrix_a.ndim == 2:
+        matrix_ab = scipy.linalg.block_diag(matrix_a, matrix_b)
+        return abstract.RingArray.build(matrix_ab, matrix_a.ring)
+    shape = (
+        matrix_a.shape[0] + matrix_b.shape[0],
+        matrix_a.shape[1] + matrix_b.shape[1],
+        *matrix_a.shape[2:],
+    )
+    matrix_ab = abstract.RingArray.build(np.zeros(shape, dtype=int), matrix_a.ring)
+    matrix_ab[: matrix_a.shape[0], : matrix_a.shape[1]] = matrix_a
+    matrix_ab[-matrix_b.shape[0] :, -matrix_b.shape[1] :] = matrix_b
+    return matrix_ab
+
+
 class SLPCode(CSSCode):
     """Subsystem lifted product code.
 
@@ -1538,19 +1560,20 @@ class SLPCode(CSSCode):
         *,
         set_logicals: bool = False,
     ) -> None:
-        """Subsystem lifted product of two RingArrays."""
+        """Subsystem lifted product of two RingArrays, as in arXiv:2404.18302."""
         if matrix_b is None:
             matrix_b = matrix_a
         self.matrix_a = abstract.RingArray(matrix_a)
         self.matrix_b = abstract.RingArray(matrix_b)
-        field = self.matrix_a.field.order
+
+        ring = self.matrix_a.ring
+        field = ring.field.order
 
         # identify X-sector and Z-sector parity checks
         matrix_x, matrix_z = SHPCode.get_matrix_product(self.matrix_a, self.matrix_b)
-        assert isinstance(matrix_x, abstract.RingArray)
-        assert isinstance(matrix_z, abstract.RingArray)
-
         super().__init__(matrix_x.lift(), matrix_z.lift(), field, is_subsystem_code=True)
+
+        # TODO: set self._stabilizer_ops
 
         if set_logicals:
             try:
@@ -1559,7 +1582,7 @@ class SLPCode(CSSCode):
             except (ValueError, NotImplementedError):
                 raise ValueError(
                     "Cannot set canonical logical operators for this code, likely due to a"
-                    " choice of group algebra for which some features are not yet supported",
+                    " choice of group algebra for which some features are not yet supported"
                 )
 
     @staticmethod
@@ -1584,9 +1607,9 @@ class SLPCode(CSSCode):
         dual_a = _get_howell_dual(generator_a)  # for which generator_a @ dual_a.T is diagonal
         dual_b = _get_howell_dual(generator_b)
 
-        logical_ops_x = np.kron(dual_a, generator_b)
-        logical_ops_z = np.kron(generator_a, dual_b)
-        return logical_ops_x.view(abstract.RingArray), logical_ops_z.view(abstract.RingArray)
+        logical_ops_x = abstract.kron(dual_a, generator_b)
+        logical_ops_z = abstract.kron(generator_a, dual_b)
+        return logical_ops_x, logical_ops_z
 
     @staticmethod
     def to_lifted_logical_ops(
