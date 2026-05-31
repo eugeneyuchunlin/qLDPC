@@ -446,12 +446,22 @@ class SequentialWindowDecoder(SinterDecoder):
                 dem_arrays.observable_flip_matrix[:, d_errors],
                 dem_arrays.error_probs[d_errors],
             )
-            window_decoder = get_decoder(window_dem_arrays.to_dem(), **self.decoder_kwargs)
+            window_dem = window_dem_arrays.to_dem()
+            window_decoder = get_decoder(window_dem, **self.decoder_kwargs)
             if getattr(window_decoder, "has_erasure_bit", False):
                 raise NotImplementedError(
-                    f"{type(self)} does not yet support erasure decoding.\nIf you would like to see "
-                    "this feature, please file an issue at https://github.com/qLDPCOrg/qLDPC/issues"
+                    f"{type(self)} does not yet support decoding with erasure.\n"
+                    "If you would like to see this feature, please file an issue at "
+                    "https://github.com/qLDPCOrg/qLDPC/issues"
                 )
+
+            # Restricting the DEM to this window may result in several error mechanisms that are
+            # equivalent, which the window_decoder will merge into one error mechanism.  In this
+            # case, wrap the decoder into an _ExpandingDecoder that maps decoded errors in the
+            # simflified DEM to errors in the full DEM.
+            test_error = window_decoder.decode(np.zeros(window_dem.num_detectors, dtype=int))
+            if len(test_error) < window_dem.num_errors:
+                window_decoder = _ExpandedWindowDecoder(window_decoder, window_dem)
 
             # identify errors in the commit region
             c_errors = dem_arrays.detector_flip_matrix[c_detectors].getnnz(axis=0) != 0
@@ -469,6 +479,62 @@ class SequentialWindowDecoder(SinterDecoder):
         return CompiledSequentialWindowDecoder(
             dem_arrays, window_detectors, window_errors, window_decoders
         )
+
+
+class _ExpandedWindowDecoder(Decoder):
+    """Wrapper for a decoder, to map decoded errors in a simplified DEM to errors in the full DEM.
+
+    The SequentialWindowDecoder restricts a DEM to a "window" before passing the DEM to a decoder for
+    that window.  Restricting a DEM may result in equivalent error mechanisms that end up getting
+    merged, which causes the restricted + simplified DEM to have fewer errors in the window than the
+    un-simplified DEM.  This wrapper expands decoded errors in the simplified DEM to equivalent
+    errors in the original DEM.
+    """
+
+    def __init__(self, decoder: Decoder, window_dem: stim.DetectorErrorModel) -> None:
+        self._decoder = decoder
+
+        original_errors = DetectorErrorModelArrays.get_circuit_errors(window_dem)
+        simplified_errors = DetectorErrorModelArrays.get_merged_circuit_errors(original_errors)
+        self._num_original_errors = len(original_errors)
+
+        # map each detector/observable signature to an original error index
+        signature_to_original_error_index = {
+            (detectors, observables): original_error_index
+            for original_error_index, (detectors, observables, _) in enumerate(original_errors)
+        }
+
+        # map each detector/observable signature to a simplified error index
+        signature_to_simplified_error_index = {
+            (detectors, observables): simplified_error_index
+            for simplified_error_index, (detectors, observables, _) in enumerate(simplified_errors)
+        }
+
+        if signature_to_simplified_error_index.keys() != signature_to_original_error_index.keys():
+            raise ValueError("Incompatible error sets")  # pragma: no cover
+
+        self._simplified_to_original_index = np.full(len(simplified_errors), -1, dtype=np.intp)
+        for signature, original_error_index in signature_to_original_error_index.items():
+            simplified_error_index = signature_to_simplified_error_index[signature]
+            self._simplified_to_original_index[simplified_error_index] = original_error_index
+
+    def decode(self, syndrome: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        simplified_error = self._decoder.decode(syndrome)
+        original_error = np.zeros(self._num_original_errors, dtype=syndrome.dtype)
+        original_error[self._simplified_to_original_index] = simplified_error
+        return np.asarray(original_error, dtype=syndrome.dtype)
+
+    def decode_batch(self, syndromes: npt.NDArray[np.int_]) -> npt.NDArray[np.int_]:
+        simplified_errors = (
+            self._decoder.decode_batch(syndromes)
+            if hasattr(self._decoder, "decode_batch")
+            else np.array([self._decoder.decode(syndrome) for syndrome in syndromes])
+        )
+        original_errors = np.zeros(
+            (len(syndromes), self._num_original_errors), dtype=syndromes.dtype
+        )
+        original_errors[:, self._simplified_to_original_index] = simplified_errors
+        return original_errors
 
 
 class SequentialSinterDecoder(SequentialWindowDecoder):  # pragma: no cover
