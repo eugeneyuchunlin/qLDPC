@@ -4,6 +4,7 @@ from .benchmarking import (
     get_nontrivial_logical_stabilizers,
     get_state_prep_diagnostic_circuit,
     get_state_prep_diagnostic_tasks,
+    get_unaddressed_measurements,
 )
 from .bookkeeping import (
     DetectorRecord,
@@ -54,6 +55,7 @@ __all__ = [
     "get_nontrivial_logical_stabilizers",
     "get_state_prep_diagnostic_circuit",
     "get_state_prep_diagnostic_tasks",
+    "get_unaddressed_measurements",
     "DetectorRecord",
     "MeasurementRecord",
     "QubitIDs",
