@@ -43,7 +43,7 @@ class QubitIDs:
     checks_z: tuple[int, ...] = ()
 
     def __init__(
-        self, data: Sequence[int], check: Sequence[int], ancilla: Sequence[int] = ()
+        self, data: Sequence[int], check: Sequence[int] = (), ancilla: Sequence[int] = ()
     ) -> None:
         self.data = tuple(data)
         self.check = tuple(check)
@@ -59,7 +59,7 @@ class QubitIDs:
         return self.data + self.check + self.ancilla
 
     @staticmethod
-    def from_code(code: codes.QuditCode, *, num_ancillas: int = 0) -> QubitIDs:
+    def from_code(code: codes.QuditCode, *, num_ancillas: int = 0, shift: int = 0) -> QubitIDs:
         """Initialize from an error-correcting code with specific parity checks."""
         data = tuple(range(len(code)))
         check = tuple(range(len(code), len(code) + code.num_checks))
@@ -67,6 +67,7 @@ class QubitIDs:
         qubit_ids = QubitIDs(data, check, ancilla)
         qubit_ids.checks_x = check[: code.num_checks_x] if isinstance(code, codes.CSSCode) else ()
         qubit_ids.checks_z = check[code.num_checks_x :] if isinstance(code, codes.CSSCode) else ()
+        qubit_ids.shift(shift)
         return qubit_ids
 
     @staticmethod
