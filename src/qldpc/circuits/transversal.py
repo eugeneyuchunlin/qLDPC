@@ -1,4 +1,4 @@
-"""Tools for identifying the transversal logical Clifford gates of a code
+"""Tools for identifying the transversal logical Clifford gates
 
 Copyright 2023 The qLDPC Authors and Infleqtion Inc.
 
@@ -28,7 +28,8 @@ from qldpc import abstract, cache, codes
 from qldpc.math import op_to_string, symplectic_conjugate
 from qldpc.objects import Pauli
 
-from .common import _get_logical_tableau_from_code_data, get_encoder_and_decoder, restrict_to_qubits
+from .common import restrict_to_qubits
+from .encoding import _get_logical_tableau_from_code_data, get_encoder_and_decoder
 
 
 @restrict_to_qubits

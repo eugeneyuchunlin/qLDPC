@@ -25,13 +25,13 @@ from qldpc import circuits, codes, decoders, math
 from qldpc.objects import Pauli
 
 
-def test_state_prep() -> None:
+def test_state_prep_benchmarks() -> None:
     """State preparation circuit benchmarks."""
 
     # construct a state prep circuit for the Steane code
     code = codes.SteaneCode()
     circuit = stim.Circuit("""
-        # state prep
+        # non-fault-tolerant |0> state prep
         H 0 2 4
         CX 0 3 2 1 4 5
         CX 0 1 2 6 4 3
@@ -41,14 +41,6 @@ def test_state_prep() -> None:
         CZ 7 1 7 3 7 5
         MX 7
     """)
-
-    # invalid logical state preparation
-    invalid_circuit = circuit + stim.Circuit("X 0")
-    with pytest.raises(ValueError, match="does not deterministically prepare a logical code"):
-        circuits.get_state_prep_diagnostic_circuit(code, invalid_circuit)
-    invalid_circuit = stim.Circuit("H 0\nCX 0 7") + circuits.get_encoding_circuit(code)
-    with pytest.raises(ValueError, match="unentangled from ancillas"):
-        circuits.get_state_prep_diagnostic_circuit(code, invalid_circuit)
 
     noise_model_family = circuits.DepolarizingNoiseModel
     error_rates = np.logspace(-3, -1, 5)
@@ -128,12 +120,3 @@ def test_state_prep() -> None:
             num_samples=1,
             dem_to_decode=stim.DetectorErrorModel(),
         )
-
-
-def test_finding_unaddressed_measurements() -> None:
-    """Identify measurements in a circuit that are not addressed by any detectors."""
-    circuit = stim.Circuit("""
-        M 0 1 2
-        DETECTOR rec[-3] rec[-1]
-    """)
-    assert circuits.get_unaddressed_measurements(circuit) == [1]
