@@ -150,38 +150,6 @@ def restrict_tableau(tableau: stim.Tableau, qubits: Sequence[int]) -> stim.Table
 
 
 @restrict_to_qubits
-def get_nontrivial_logical_stabilizers(
-    code: codes.QuditCode, state_prep_circuit: stim.Circuit, *, skip_validation: bool = False
-) -> list[stim.PauliString]:
-    """Identify a complete basis for the nontrivial logical Pauli stabilizers of the prepared state.
-
-    The first len(code) qubits addressed by the circuit must be the data qubits of the code.
-
-    Args:
-        code: The code whose logical state is prepared by the provided state_prep_circuit.
-        state_prep_circuit: A circuit that prepares a logical state of the provided code.
-
-    Keyword args:
-        skip_validation: If True, skip the check to assert that the provided circuit prepares a
-            logical state of the provided code.
-
-    Returns:
-        A list of logical Pauli operators supported on the data qubits of the provided code.
-    """
-    if not skip_validation:
-        _assert_valid_code_state(code, state_prep_circuit)
-
-    # identify stabilizers of the prepared state that are supported on the data qubits of the code
-    decoded_stabilizers = get_state_stabilizers(code, state_prep_circuit, decoded=True)
-
-    # identify stabilizers of the state that are pure logicals
-    logical_stab_mat = [math.string_to_op(stab[: code.dimension]) for stab in decoded_stabilizers]
-    logical_stab_mat_rref = code.field(logical_stab_mat).row_reduce()
-    logical_stab_mat_rref = logical_stab_mat_rref[np.any(logical_stab_mat_rref, axis=1)]
-    return logical_stab_mat_rref @ code.get_logical_ops()
-
-
-@restrict_to_qubits
 def get_state_stabilizers(
     code: codes.QuditCode, state_prep_circuit: stim.Circuit, *, decoded: bool = False
 ) -> list[stim.PauliString]:
@@ -260,6 +228,38 @@ def get_state_stabilizers(
         encoder = get_encoding_tableau(code)
         stabilizers = [stab.before(encoder, targets=range(len(code))) for stab in stabilizers]
     return stabilizers
+
+
+@restrict_to_qubits
+def get_logical_state_stabilizers(
+    code: codes.QuditCode, state_prep_circuit: stim.Circuit, *, skip_validation: bool = False
+) -> list[stim.PauliString]:
+    """Identify a complete basis for the nontrivial logical Pauli stabilizers of the prepared state.
+
+    The first len(code) qubits addressed by the circuit must be the data qubits of the code.
+
+    Args:
+        code: The code whose logical state is prepared by the provided state_prep_circuit.
+        state_prep_circuit: A circuit that prepares a logical state of the provided code.
+
+    Keyword args:
+        skip_validation: If True, skip the check to assert that the provided circuit prepares a
+            logical state of the provided code.
+
+    Returns:
+        A list of logical Pauli operators supported on the data qubits of the provided code.
+    """
+    if not skip_validation:
+        _assert_valid_code_state(code, state_prep_circuit)
+
+    # identify stabilizers of the prepared state that are supported on the data qubits of the code
+    decoded_stabilizers = get_state_stabilizers(code, state_prep_circuit, decoded=True)
+
+    # identify stabilizers of the state that are pure logicals
+    logical_stab_mat = [math.string_to_op(stab[: code.dimension]) for stab in decoded_stabilizers]
+    logical_stab_mat_rref = code.field(logical_stab_mat).row_reduce()
+    logical_stab_mat_rref = logical_stab_mat_rref[np.any(logical_stab_mat_rref, axis=1)]
+    return logical_stab_mat_rref @ code.get_logical_ops()
 
 
 def _get_logical_tableau_from_code_data(

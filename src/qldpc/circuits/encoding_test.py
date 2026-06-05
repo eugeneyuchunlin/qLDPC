@@ -116,7 +116,7 @@ def test_nontrivial_logical_stabilizers(pytestconfig: pytest.Config) -> None:
     circuit = stim.Tableau.random(num_qubits=code.dimension).to_circuit()
     circuit += circuits.get_encoding_circuit(code)
 
-    logical_stabs = circuits.get_nontrivial_logical_stabilizers(code, circuit)
+    logical_stabs = circuits.get_logical_state_stabilizers(code, circuit)
     assert len(logical_stabs) == code.dimension
 
     # All logical stabilizers should have a nonzero expectation value.
@@ -129,4 +129,4 @@ def test_nontrivial_logical_stabilizers(pytestconfig: pytest.Config) -> None:
 
     invalid_circuit = stim.Circuit(f"X {len(code) - 1}") + circuit
     with pytest.raises(ValueError, match="does not .* prepare a logical code state"):
-        circuits.get_nontrivial_logical_stabilizers(code, invalid_circuit)
+        circuits.get_logical_state_stabilizers(code, invalid_circuit)
