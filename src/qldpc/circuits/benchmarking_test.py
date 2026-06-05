@@ -104,7 +104,7 @@ def test_state_prep_benchmarks() -> None:
 
     # bypass sinter to compute logical error rates
     logical_error_rate, discard_rate = circuits.get_logical_error_and_discard_rate(
-        task.circuit,
+        circuit,
         sinter_decoder=decoders.SinterDecoder(),
         num_samples=1,
         post_select=range(circuit.num_measurements),

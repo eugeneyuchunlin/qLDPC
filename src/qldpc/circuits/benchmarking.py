@@ -354,7 +354,7 @@ def get_logical_error_and_discard_rate(
     predicted_flips = compiled_sinter_decoder.decode_shots_bit_packed(det_data)
     obs_flips = obs_data ^ predicted_flips
     failures = np.any(obs_flips, axis=1)
-    logical_error_rate = np.sum(failures) / len(failures)
+    logical_error_rate = np.sum(failures) / len(failures) if len(failures) else np.nan
 
     return logical_error_rate, discard_rate
 
