@@ -248,15 +248,15 @@ def get_state_stabilizers(
 
 @restrict_to_qubits
 def get_logical_state_stabilizers(
-    code: codes.QuditCode, state_prep_circuit: stim.Circuit, qubit_ids: QubitIDs | None = None
+    state_prep_circuit: stim.Circuit, code: codes.QuditCode, qubit_ids: QubitIDs | None = None
 ) -> list[stim.PauliString]:
     """Identify pure logical operators that stabilize the state prepared by the provided circuit.
 
     The first len(code) qubits addressed by the circuit must be the data qubits of the code.
 
     Args:
-        code: The code whose logical state is prepared by the provided state_prep_circuit.
         state_prep_circuit: A circuit that prepares a logical state of the provided code.
+        code: The code whose logical state is prepared by the provided state_prep_circuit.
         qubit_ids: A QubitIDs object specifying the indices of the data qubits of the code.
             If None, the data qubits of the code are assumed to be range(len(code)).
 

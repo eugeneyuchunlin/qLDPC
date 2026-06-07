@@ -83,7 +83,7 @@ def test_encoding_circuit(pytestconfig: pytest.Config) -> None:
                 assert simulator.peek_observable_expectation(string) == 1
 
 
-def _get_logical_pauli_string(
+def _get_logical_pauli_string(  # pragma: no cover
     basis: Pauli, op_x: npt.NDArray[np.int_], op_z: npt.NDArray[np.int_]
 ) -> stim.PauliString:
     """Build a logical operator Pauli string from symplectic logical Pauli X and Z vectors."""
@@ -139,7 +139,7 @@ def test_state_stabilizers(pytestconfig: pytest.Config) -> None:
         assert simulator.peek_observable_expectation(stab) == 1
 
     # all logical stabilizers of the state have expectation value +1
-    logical_stabs = circuits.get_logical_state_stabilizers(code, circuit)
+    logical_stabs = circuits.get_logical_state_stabilizers(circuit, code)
     assert len(logical_stabs) == code.dimension
     for stab in logical_stabs:
         assert simulator.peek_observable_expectation(stab) == 1
