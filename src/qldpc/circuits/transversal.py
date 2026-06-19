@@ -121,10 +121,10 @@ def get_transversal_automorphism_group(
     if not local_gates:
         # we are looking for transversal gates involving only two-qubit SWAPs
         matrix: npt.NDArray[np.int_] = parity_checks
-        if isinstance(
-            canonicalized_code := codes.QuditCode(matrix).canonicalized.maybe_to_css(),
-            codes.CSSCode,
-        ) and np.array_equal(canonicalized_code.matrix_x, canonicalized_code.matrix_z):
+        _code = codes.QuditCode(matrix).maybe_to_css()
+        if isinstance(_code, codes.CSSCode) and np.array_equal(
+            (canonicalized_code := _code.canonicalized).matrix_x, canonicalized_code.matrix_z
+        ):
             matrix = canonicalized_code.matrix_x
 
     else:
